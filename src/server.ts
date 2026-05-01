@@ -6,6 +6,9 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
+// Load environment variables
+dotenv.config();
+
 // Import configurations and utilities
 import { testConnection } from './config/database';
 import { UserModel } from './models/User';
@@ -27,9 +30,6 @@ import discussionRoutes from './routes/discussion';
 import enrollmentRoutes from './routes/enrollment';
 import aiRoutesOpenAI from './routes/aiOpenAI';
 import announcementRoutes from './routes/announcement';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

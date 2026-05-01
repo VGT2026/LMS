@@ -43,8 +43,12 @@ export const ensureDatabaseSchema = async (): Promise<void> => {
     throw new Error(`Database schema file not found at ${schemaPath}`);
   }
 
+  console.log('🔄 Starting database schema initialization...');
+
   const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
   const commands = parseSqlCommands(schemaSQL);
+
+  console.log(`📋 Found ${commands.length} SQL statements to execute`);
 
   let successCount = 0;
   let skipCount = 0;
