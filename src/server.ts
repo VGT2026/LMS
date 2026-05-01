@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { testConnection } from './config/database';
 import { UserModel } from './models/User';
 import { hashPassword } from './utils/auth';
+import { ensureDatabaseSchema } from './utils/schemaInitializer';
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -107,25 +108,21 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 
 // Initialize admin user
 const initializeAdminUser = async (): Promise<void> => {
-  try {
-    // Check if admin user already exists
-    const existingAdmin = await UserModel.findByEmail('admin@lmspro.com');
-    if (!existingAdmin) {
-      // Create admin user
-      const hashedPassword = await hashPassword('admin123');
-      await UserModel.create({
-        name: 'System Administrator',
-        email: 'admin@lmspro.com',
-        password: hashedPassword,
-        role: 'admin',
-        is_active: true,
-      });
-      console.log('✅ Admin user initialized');
-    } else {
-      console.log('✅ Admin user already exists');
-    }
-  } catch (error) {
-    console.error('❌ Failed to initialize admin user:', error);
+  // Check if admin user already exists
+  const existingAdmin = await UserModel.findByEmail('admin@lmspro.com');
+  if (!existingAdmin) {
+    // Create admin user
+    const hashedPassword = await hashPassword('admin123');
+    await UserModel.create({
+      name: 'System Administrator',
+      email: 'admin@lmspro.com',
+      password: hashedPassword,
+      role: 'admin',
+      is_active: true,
+    });
+    console.log('✅ Admin user initialized');
+  } else {
+    console.log('✅ Admin user already exists');
   }
 };
 
@@ -134,6 +131,9 @@ const startServer = async () => {
   try {
     // Test database connection
     await testConnection();
+
+    // Ensure the database schema exists before creating the admin user
+    await ensureDatabaseSchema();
 
     // Initialize admin user
     await initializeAdminUser();
