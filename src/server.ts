@@ -59,12 +59,16 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  const health = {
     success: true,
     message: 'LMS Backend API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-  });
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    version: process.version,
+  };
+  res.status(200).json(health);
 });
 
 // Serve uploaded files (videos, etc.)
@@ -161,6 +165,20 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   console.log('🛑 Received SIGTERM, shutting down gracefully...');
   process.exit(0);
+});
+
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Log but don't exit in production to maintain availability
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Log but don't exit in production to maintain availability
+  if (process.env.NODE_ENV === 'development') {
+    process.exit(1);
+  }
 });
 
 startServer();

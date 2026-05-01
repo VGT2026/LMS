@@ -9,6 +9,9 @@ export interface DatabaseConfig {
   waitForConnections: boolean;
   connectionLimit: number;
   queueLimit: number;
+  acquireTimeout?: number;
+  timeout?: number;
+  connectTimeout?: number;
 }
 
 const getDatabaseConfig = (): DatabaseConfig => {
@@ -24,8 +27,9 @@ const getDatabaseConfig = (): DatabaseConfig => {
       password: decodeURIComponent(url.password) || '',
       database: url.pathname?.slice(1) || process.env.DB_NAME || 'lms_database',
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: process.env.NODE_ENV === 'production' ? 5 : 10, // Lower limit for production
       queueLimit: 0,
+      connectTimeout: 60000, // 60 seconds
     };
   }
 
@@ -36,8 +40,9 @@ const getDatabaseConfig = (): DatabaseConfig => {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'lms_database',
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: process.env.NODE_ENV === 'production' ? 5 : 10, // Lower limit for production
     queueLimit: 0,
+    connectTimeout: 60000, // 60 seconds
   };
 };
 

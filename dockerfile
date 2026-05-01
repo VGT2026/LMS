@@ -34,4 +34,4 @@ ENV PORT=3000
 EXPOSE 3000
 
 # Start app (auto-detect dist or fallback)
-CMD ["sh", "-c", "node dist/index.js || node index.js"]
+CMD ["sh", "-c", "node dist/server.js || node src/server.ts"]
