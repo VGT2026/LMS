@@ -370,15 +370,15 @@ export const createInstructor = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    const emailNorm = email.toLowerCase().trim();
+    const nameTrim = name.trim();
+
     // Check if user already exists
-    const existingUser = await UserModel.existsByEmail(email);
+    const existingUser = await UserModel.existsByEmail(emailNorm);
     if (existingUser) {
       sendError(res, 'User with this email already exists', 409);
       return;
     }
-
-    const emailNorm = email.toLowerCase().trim();
-    const nameTrim = name.trim();
 
     // Create Firebase Auth user first (so instructor can log in)
     const { createFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
@@ -398,13 +398,22 @@ export const createInstructor = async (req: Request, res: Response): Promise<voi
     }
 
     // Create instructor user in database
-    const newInstructor = await UserModel.create({
-      name: nameTrim,
-      email: emailNorm,
-      password,
-      role: 'instructor',
-      is_active: true,
-    });
+    let newInstructor;
+    try {
+      newInstructor = await UserModel.create({
+        name: nameTrim,
+        email: emailNorm,
+        password,
+        role: 'instructor',
+        is_active: true,
+      });
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        sendError(res, 'User with this email already exists', 409);
+        return;
+      }
+      throw err;
+    }
 
     // Send credentials email to instructor
     let emailSent = false;
