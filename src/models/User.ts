@@ -233,7 +233,8 @@ export class UserModel {
 
   // Check if user exists by email
   static async existsByEmail(email: string): Promise<boolean> {
-    const count = await DatabaseHelper.count('users', 'email = ?', [email]);
+    const normalized = String(email || '').trim().toLowerCase();
+    const count = await DatabaseHelper.count('users', 'LOWER(TRIM(email)) = ?', [normalized]);
     return count > 0;
   }
 
