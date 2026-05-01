@@ -61,7 +61,7 @@ router.post('/admin/instructor', authenticate, requireAdmin, [
   body('name').trim().isLength({ min: 2, max: 50 }),
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
-], createInstructor);
+], handleValidation, createInstructor);
 
 router.get('/admin/users', authenticate, requireAdmin, getAllUsers);
 
