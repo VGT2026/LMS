@@ -55,17 +55,46 @@ const initDatabase = async () => {
     const schemaPath = path.join(__dirname, '../../database_schema.sql');
     const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
 
+    // Remove comments from SQL
+    const cleaned = schemaSQL
+      .split('\n')
+      .map(line => {
+        const commentIdx = line.indexOf('--');
+        return commentIdx >= 0 ? line.substring(0, commentIdx) : line;
+      })
+      .join('\n');
+
     // Split SQL commands and execute them
-    const commands = schemaSQL
+    const commands = cleaned
       .split(';')
       .map(cmd => cmd.trim())
-      .filter(cmd => cmd.length > 0 && !cmd.startsWith('--'));
+      .filter(cmd => cmd.length > 0 && cmd.toUpperCase() !== 'COMMIT');
+
+    let successCount = 0;
+    let skipCount = 0;
 
     for (const command of commands) {
-      await connection.query(command);
+      try {
+        await connection.query(command);
+        successCount++;
+      } catch (err: any) {
+        // Skip non-critical errors like indexes on non-existent tables
+        if (
+          ((command.toUpperCase().includes('CREATE INDEX') || 
+            command.toUpperCase().includes('ALTER TABLE')) && 
+           err.code === 'ER_NO_SUCH_TABLE') ||
+          err.code === 'ER_DUP_FIELDNAME' ||
+          err.code === 'ER_DUP_KEYNAME'
+        ) {
+          skipCount++;
+          console.log(`⏭️ Skipped non-critical error: ${err.sqlMessage}`);
+        } else {
+          throw err;
+        }
+      }
     }
 
-    console.log('✅ Database schema initialized successfully');
+    console.log(`✅ Database schema initialized successfully (${successCount} executed, ${skipCount} skipped)`);
     console.log('🎯 LMS Database is ready!');
 
   } catch (error) {
