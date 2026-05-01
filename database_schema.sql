@@ -1,9 +1,7 @@
 -- LMS Database Schema
 -- Run this script to create all necessary tables for the Learning Management System
 
--- Create database
-CREATE DATABASE IF NOT EXISTS lms_database;
-USE lms_database;
+-- Database selection is handled by the initialization script
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (

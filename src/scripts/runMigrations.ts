@@ -3,15 +3,39 @@ import mysql from 'mysql2/promise';
 
 dotenv.config();
 
+const getDatabaseConfig = () => {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (databaseUrl) {
+    const url = new URL(databaseUrl);
+    return {
+      host: url.hostname,
+      port: parseInt(url.port || '3306', 10),
+      user: decodeURIComponent(url.username) || 'root',
+      password: decodeURIComponent(url.password) || '',
+      database: url.pathname?.slice(1) || process.env.DB_NAME || 'lms_database',
+    };
+  }
+
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'lms_database',
+  };
+};
+
 const runMigrations = async () => {
   let connection: mysql.Connection | null = null;
+  const dbConfig = getDatabaseConfig();
   try {
     connection = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '3306'),
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'lms_database',
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      password: dbConfig.password,
+      database: dbConfig.database,
     });
     console.log('📡 Connected to database');
 
