@@ -6,14 +6,10 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 
-// Load environment variables
-dotenv.config();
-
 // Import configurations and utilities
 import { testConnection } from './config/database';
 import { UserModel } from './models/User';
 import { hashPassword } from './utils/auth';
-import { ensureDatabaseSchema } from './utils/schemaInitializer';
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -30,6 +26,9 @@ import discussionRoutes from './routes/discussion';
 import enrollmentRoutes from './routes/enrollment';
 import aiRoutesOpenAI from './routes/aiOpenAI';
 import announcementRoutes from './routes/announcement';
+
+// Load environment variables
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,8 +47,16 @@ const limiter = rateLimit({
 
 // Middleware
 app.use(helmet()); // Security headers
+const rawCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8081')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:8081',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow server-to-server requests and tools like Postman
+    if (rawCorsOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS origin denied: ${origin}`));
+  },
   credentials: true,
 }));
 app.use(morgan('combined')); // Logging
@@ -59,16 +66,12 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  const health = {
+  res.status(200).json({
     success: true,
     message: 'LMS Backend API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    version: process.version,
-  };
-  res.status(200).json(health);
+  });
 });
 
 // Serve uploaded files (videos, etc.)
@@ -112,21 +115,25 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 
 // Initialize admin user
 const initializeAdminUser = async (): Promise<void> => {
-  // Check if admin user already exists
-  const existingAdmin = await UserModel.findByEmail('admin@lmspro.com');
-  if (!existingAdmin) {
-    // Create admin user
-    const hashedPassword = await hashPassword('admin123');
-    await UserModel.create({
-      name: 'System Administrator',
-      email: 'admin@lmspro.com',
-      password: hashedPassword,
-      role: 'admin',
-      is_active: true,
-    });
-    console.log('✅ Admin user initialized');
-  } else {
-    console.log('✅ Admin user already exists');
+  try {
+    // Check if admin user already exists
+    const existingAdmin = await UserModel.findByEmail('admin@lmspro.com');
+    if (!existingAdmin) {
+      // Create admin user
+      const hashedPassword = await hashPassword('admin123');
+      await UserModel.create({
+        name: 'System Administrator',
+        email: 'admin@lmspro.com',
+        password: hashedPassword,
+        role: 'admin',
+        is_active: true,
+      });
+      console.log('✅ Admin user initialized');
+    } else {
+      console.log('✅ Admin user already exists');
+    }
+  } catch (error) {
+    console.error('❌ Failed to initialize admin user:', error);
   }
 };
 
@@ -135,9 +142,6 @@ const startServer = async () => {
   try {
     // Test database connection
     await testConnection();
-
-    // Ensure the database schema exists before creating the admin user
-    await ensureDatabaseSchema();
 
     // Initialize admin user
     await initializeAdminUser();
@@ -165,20 +169,6 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   console.log('🛑 Received SIGTERM, shutting down gracefully...');
   process.exit(0);
-});
-
-// Global error handlers to prevent crashes
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  // Log but don't exit in production to maintain availability
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  // Log but don't exit in production to maintain availability
-  if (process.env.NODE_ENV === 'development') {
-    process.exit(1);
-  }
 });
 
 startServer();
