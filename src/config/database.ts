@@ -9,44 +9,42 @@ export interface DatabaseConfig {
   waitForConnections: boolean;
   connectionLimit: number;
   queueLimit: number;
-  acquireTimeout?: number;
-  timeout?: number;
-  connectTimeout?: number;
 }
 
-const getDatabaseConfig = (): DatabaseConfig => {
-  const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL?.trim();
+const parsedDatabaseUrl = databaseUrl ? new URL(databaseUrl) : null;
 
-  if (databaseUrl) {
-    const url = new URL(databaseUrl);
-
-    return {
-      host: url.hostname,
-      port: parseInt(url.port || '3306', 10),
-      user: decodeURIComponent(url.username) || 'root',
-      password: decodeURIComponent(url.password) || '',
-      database: url.pathname?.slice(1) || process.env.DB_NAME || 'lms_database',
-      waitForConnections: true,
-      connectionLimit: process.env.NODE_ENV === 'production' ? 5 : 10, // Lower limit for production
-      queueLimit: 0,
-      connectTimeout: 60000, // 60 seconds
-    };
-  }
-
-  return {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'lms_database',
-    waitForConnections: true,
-    connectionLimit: process.env.NODE_ENV === 'production' ? 5 : 10, // Lower limit for production
-    queueLimit: 0,
-    connectTimeout: 60000, // 60 seconds
-  };
+const dbConfig: DatabaseConfig = {
+  host:
+    process.env.DB_HOST ||
+    process.env.MYSQL_HOST ||
+    parsedDatabaseUrl?.hostname ||
+    'localhost',
+  port: parseInt(
+    process.env.DB_PORT ||
+    process.env.MYSQL_PORT ||
+    parsedDatabaseUrl?.port ||
+    '3306'
+  ),
+  user:
+    process.env.DB_USER ||
+    process.env.MYSQL_USER ||
+    parsedDatabaseUrl?.username ||
+    'root',
+  password:
+    process.env.DB_PASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    parsedDatabaseUrl?.password ||
+    '',
+  database:
+    process.env.DB_NAME ||
+    process.env.MYSQL_DATABASE ||
+    (parsedDatabaseUrl?.pathname ? parsedDatabaseUrl.pathname.replace(/\//g, '') : '') ||
+    'lms_database',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 };
-
-const dbConfig: DatabaseConfig = getDatabaseConfig();
 
 export const createConnection = async () => {
   try {
@@ -75,16 +73,14 @@ export const pool = createPool();
 
 // Test database connection
 export const testConnection = async (): Promise<boolean> => {
-  const connection = await pool.getConnection();
-
   try {
+    const connection = await pool.getConnection();
     await connection.ping();
+    connection.release();
     console.log('✅ Database connection test successful');
     return true;
   } catch (error) {
     console.error('❌ Database connection test failed:', error);
-    throw error;
-  } finally {
-    connection.release();
+    return false;
   }
 };
