@@ -23,6 +23,22 @@ export interface AISummaryWithUser extends AISummary {
   course_title?: string;
 }
 
+function normalizeKeyPoints(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map((v) => String(v));
+      return [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /**
  * AISummaryModel - Manages AI-generated summaries in the database
  */
@@ -109,14 +125,20 @@ export class AISummaryModel {
       LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
 
-    const summaries = await DatabaseHelper.findMany<any>(query, [userId]);
+    try {
+      const summaries = await DatabaseHelper.findMany<any>(query, [userId]);
 
-    return summaries.map((s: any) => {
-      if (s.key_points) {
-        s.key_points = JSON.parse(s.key_points);
+      return summaries.map((s: any) => ({
+        ...s,
+        key_points: normalizeKeyPoints(s.key_points),
+      })) as AISummary[];
+    } catch (err: any) {
+      if (err?.code === 'ER_NO_SUCH_TABLE' || err?.errno === 1146) {
+        console.warn('[AISummary] ai_summaries table missing. Returning empty summaries list.');
+        return [];
       }
-      return s as AISummary;
-    });
+      throw err;
+    }
   }
 
   /**
@@ -147,12 +169,10 @@ export class AISummaryModel {
 
     const summaries = await DatabaseHelper.findMany<any>(query, [courseId]);
 
-    return summaries.map((s: any) => {
-      if (s.key_points) {
-        s.key_points = JSON.parse(s.key_points);
-      }
-      return s as AISummaryWithUser;
-    });
+    return summaries.map((s: any) => ({
+      ...s,
+      key_points: normalizeKeyPoints(s.key_points),
+    })) as AISummaryWithUser[];
   }
 
   /**
@@ -217,8 +237,15 @@ export class AISummaryModel {
    */
   static async countByUserId(userId: number): Promise<number> {
     const query = 'SELECT COUNT(*) as count FROM ai_summaries WHERE user_id = ?';
-    const result = await DatabaseHelper.findOne<{ count: number }>(query, [userId]);
-    return result?.count || 0;
+    try {
+      const result = await DatabaseHelper.findOne<{ count: number }>(query, [userId]);
+      return Number(result?.count ?? 0);
+    } catch (err: any) {
+      if (err?.code === 'ER_NO_SUCH_TABLE' || err?.errno === 1146) {
+        return 0;
+      }
+      throw err;
+    }
   }
 
   /**
