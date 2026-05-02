@@ -139,6 +139,25 @@ export class QuizModel {
     return (result.affectedRows ?? 0) > 0;
   }
 
+  /** Normalized rows from legacy `quiz_questions` (used when `questions_json` is empty). */
+  static async findLegacyQuizQuestions(quizId: number): Promise<
+    Array<{
+      id: number;
+      question: string;
+      options: unknown;
+      correct_answer: number;
+      points: unknown;
+    }>
+  > {
+    const query = `
+      SELECT id, question, options, correct_answer, points
+      FROM quiz_questions
+      WHERE quiz_id = ?
+      ORDER BY id ASC
+    `;
+    return DatabaseHelper.findMany(query, [quizId]);
+  }
+
   private static mapRow(row: any): QuizType {
     let questionsJson: unknown = row.questions_json;
     if (typeof questionsJson === 'string') {

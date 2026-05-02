@@ -69,6 +69,46 @@ function parseQuestions(raw: unknown): QuizQuestion[] {
   }));
 }
 
+function parseLegacyOptions(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      return Array.isArray(p) ? p.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function legacyRowsToQuizQuestions(
+  rows: Array<{ id: number; question: string; options: unknown; correct_answer: number; points: unknown }>
+): QuizQuestion[] {
+  return rows.map((row) => ({
+    id: String(row.id),
+    prompt: row.question,
+    question: row.question,
+    options: parseLegacyOptions(row.options),
+    correct: Number(row.correct_answer),
+    type: 'multiple_choice',
+    points: row.points != null ? Number(row.points) : 1,
+  }));
+}
+
+/** Prefer `questions_json`; if empty, load from legacy `quiz_questions` table. */
+async function resolveExamQuestions(quizId: number, questionsJson: unknown): Promise<QuizQuestion[]> {
+  const fromJson = parseQuestions(questionsJson);
+  if (fromJson.length > 0) return fromJson;
+  try {
+    const rows = await QuizModel.findLegacyQuizQuestions(quizId);
+    return legacyRowsToQuizQuestions(rows);
+  } catch (e) {
+    console.warn('[Quiz] quiz_questions fallback failed:', (e as Error)?.message ?? e);
+    return [];
+  }
+}
+
 function sanitizeQuestions(questions: QuizQuestion[]) {
   return questions.map((q) => ({
     id: q.id,
@@ -99,7 +139,7 @@ export async function expireStaleQuizAttempt(quizId: number, userId: number): Pr
   const started = new Date(active.started_at).getTime();
   const endsMs = started + (quiz.time_limit ?? 30) * 60 * 1000;
   if (Date.now() <= endsMs) return;
-  const questions = parseQuestions(quiz.questions_json);
+  const questions = await resolveExamQuestions(quizId, quiz.questions_json);
   let answers: Record<string, any> = {};
   try {
     const raw = active.answers_json;
@@ -108,7 +148,6 @@ export async function expireStaleQuizAttempt(quizId: number, userId: number): Pr
     answers = {};
   }
 
-  // Use AI-powered grading
   console.log(`[Quiz] Auto-submitting expired attempt ${active.id} using AI grading...`);
   const gradingResult = await gradeQuizAnswers(questions, answers, quiz.total_points ?? 100);
 
@@ -177,7 +216,7 @@ export const getExamQuiz = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const questions = parseQuestions(quiz.questions_json);
+    const questions = await resolveExamQuestions(quizId, quiz.questions_json);
     if (questions.length === 0) {
       sendError(res, 'This exam has no questions configured yet', 400);
       return;
@@ -283,7 +322,7 @@ export const startQuizAttempt = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const questions = parseQuestions(quiz.questions_json);
+    const questions = await resolveExamQuestions(quizId, quiz.questions_json);
     if (questions.length === 0) {
       sendError(res, 'This exam has no questions', 400);
       return;
@@ -427,7 +466,7 @@ export const submitQuizAttempt = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const questions = parseQuestions(quiz.questions_json);
+    const questions = await resolveExamQuestions(att.quiz_id, quiz.questions_json);
     let answers: Record<string, any> = {};
     try {
       const raw = req.body?.answers ?? att.answers_json;
@@ -436,7 +475,6 @@ export const submitQuizAttempt = async (req: Request, res: Response): Promise<vo
       answers = {};
     }
 
-    // Use AI-powered grading
     console.log(`[Quiz] Grading attempt ${attemptId} for quiz ${att.quiz_id} using AI...`);
     const gradingResult = await gradeQuizAnswers(questions, answers, quiz.total_points ?? 100);
 
