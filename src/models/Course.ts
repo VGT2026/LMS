@@ -1,12 +1,17 @@
 import { Course as CourseType } from '../types';
 import DatabaseHelper from '../utils/database';
+import { tableHasColumn } from '../utils/mysqlSchema';
 
 export class CourseModel {
   // Find course by ID
   static async findById(id: number): Promise<CourseType | null> {
+    const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
+    const approvalProjection = hasApprovalStatus
+      ? 'c.approval_status'
+      : `'approved' AS approval_status`;
     const query = `
       SELECT c.id, c.title, c.description, c.instructor_id, c.category, c.thumbnail,
-             c.duration, c.price, c.level, c.is_active, c.approval_status, c.created_at, c.updated_at,
+             c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
              u.name as instructor_name, u.email as instructor_email
       FROM courses c
       LEFT JOIN users u ON c.instructor_id = u.id
@@ -156,6 +161,11 @@ export class CourseModel {
   } = {}): Promise<{ courses: CourseType[]; total: number; page: number; limit: number }> {
     const { page = 1, limit = 10, category, instructor_id, is_active, include_inactive, search } = options;
 
+    const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
+    const approvalProjection = hasApprovalStatus
+      ? 'c.approval_status'
+      : `'approved' AS approval_status`;
+
     let whereConditions: string[] = [];
     let params: any[] = [];
 
@@ -171,12 +181,13 @@ export class CourseModel {
     }
 
     if (include_inactive) {
-      // Include both active and inactive, but only approved
-      whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+      if (hasApprovalStatus) {
+        whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+      }
     } else if (is_active !== undefined) {
       whereConditions.push('c.is_active = ?');
       params.push(is_active);
-      if (is_active) {
+      if (is_active && hasApprovalStatus) {
         whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
       }
     }
@@ -196,7 +207,7 @@ export class CourseModel {
     // Get paginated results (include module_count and students)
     const { query: paginatedQuery, params: paginatedParams } = DatabaseHelper.getPaginationQuery(
       `SELECT c.id, c.title, c.description, c.instructor_id, c.category, c.thumbnail,
-              c.duration, c.price, c.level, c.is_active, c.approval_status, c.created_at, c.updated_at,
+              c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
               u.name as instructor_name, u.email as instructor_email,
               (SELECT COUNT(*) FROM course_modules WHERE course_id = c.id) as module_count,
               (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as students
