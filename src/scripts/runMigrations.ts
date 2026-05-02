@@ -157,6 +157,65 @@ const runMigrations = async () => {
       } else throw err;
     }
 
+    // Migration: Chat tables (conversations + messages)
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS conversations (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_updated_at (updated_at)
+        )
+      `);
+      console.log('✅ Created conversations table');
+    } catch (err: any) {
+      if (err.code === 'ER_TABLE_EXISTS_ERROR') {
+        console.log('⏭️ conversations table already exists');
+      } else throw err;
+    }
+
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS conversation_participants (
+          conversation_id INT NOT NULL,
+          user_id INT NOT NULL,
+          last_read_at DATETIME NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (conversation_id, user_id),
+          INDEX idx_user_id (user_id),
+          FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      console.log('✅ Created conversation_participants table');
+    } catch (err: any) {
+      if (err.code === 'ER_TABLE_EXISTS_ERROR') {
+        console.log('⏭️ conversation_participants table already exists');
+      } else throw err;
+    }
+
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS messages (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          conversation_id INT NOT NULL,
+          sender_id INT NOT NULL,
+          content TEXT NOT NULL,
+          is_read TINYINT(1) NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_conversation_created (conversation_id, created_at),
+          INDEX idx_sender_id (sender_id),
+          FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+          FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `);
+      console.log('✅ Created messages table');
+    } catch (err: any) {
+      if (err.code === 'ER_TABLE_EXISTS_ERROR') {
+        console.log('⏭️ messages table already exists');
+      } else throw err;
+    }
+
     // Quiz exam: time window, questions JSON, attempts + proctor logs
     try {
       await connection.query(
