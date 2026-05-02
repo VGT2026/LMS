@@ -47,11 +47,19 @@ const limiter = rateLimit({
 
 // Middleware
 app.use(helmet()); // Security headers
-// Browser Origin is scheme+host+port only (no path). Allow list may use trailing / or /* by mistake.
+// Browser Origin is scheme+host+port only (no path). Allow list may use trailing /, /*, or both (e.g. ...com/*/).
 function normalizeCorsOrigin(value: string): string {
   let s = value.trim();
-  if (s.endsWith('/*')) s = s.slice(0, -2);
-  return s.replace(/\/+$/, '');
+  while (s.length > 0) {
+    if (s.endsWith('/*')) {
+      s = s.slice(0, -2);
+    } else if (s.endsWith('/')) {
+      s = s.slice(0, -1);
+    } else {
+      break;
+    }
+  }
+  return s;
 }
 // Production: never default to localhost — set CORS_ORIGIN to your deployed frontend origin only.
 // Non-production: if CORS_ORIGIN is unset, allow common local Vite ports.
