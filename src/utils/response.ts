@@ -37,15 +37,18 @@ export const sendPagination = <T>(
   total: number,
   message = 'Success'
 ): void => {
-  const totalPages = Math.ceil(total / limit);
+  const safeTotal = Number(total);
+  const safeLimit = Number(limit);
+  const safePage = Number(page);
+  const totalPages = safeLimit > 0 ? Math.ceil(safeTotal / safeLimit) : 0;
   const response: ApiResponse<T[]> = {
     success: true,
     data,
     message,
     pagination: {
-      page,
-      limit,
-      total,
+      page: safePage,
+      limit: safeLimit,
+      total: safeTotal,
       totalPages,
     },
   };

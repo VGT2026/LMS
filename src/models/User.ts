@@ -188,7 +188,8 @@ export class UserModel {
     // Get total count
     const countQuery = `SELECT COUNT(*) as total FROM users ${whereClause}`;
     const countResult = await DatabaseHelper.findOne<{ total: number }>(countQuery, params);
-    const total = countResult?.total || 0;
+    // mysql2 can return BIGINT as bigint — breaks res.json serialization
+    const total = Number(countResult?.total ?? 0);
 
     // Get paginated results
     const { query: paginatedQuery, params: paginatedParams } = DatabaseHelper.getPaginationQuery(
@@ -209,7 +210,12 @@ export class UserModel {
       limit
     );
 
-    const users = await DatabaseHelper.findMany<UserType>(paginatedQuery, [...params, ...paginatedParams]);
+    const rawUsers = await DatabaseHelper.findMany<UserType>(paginatedQuery, [...params, ...paginatedParams]);
+
+    const users = rawUsers.map((user) => ({
+      ...user,
+      enrolled: Number((user as UserType & { enrolled?: unknown }).enrolled ?? 0),
+    }));
 
     return {
       users,
