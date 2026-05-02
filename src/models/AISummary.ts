@@ -106,14 +106,10 @@ export class AISummaryModel {
       FROM ai_summaries
       WHERE user_id = ?
       ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
 
-    const summaries = await DatabaseHelper.findMany<any>(query, [
-      userId,
-      safeLimit,
-      safeOffset,
-    ]);
+    const summaries = await DatabaseHelper.findMany<any>(query, [userId]);
 
     return summaries.map((s: any) => {
       if (s.key_points) {
@@ -146,14 +142,10 @@ export class AISummaryModel {
       LEFT JOIN users u ON s.user_id = u.id
       WHERE s.course_id = ?
       ORDER BY s.created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
 
-    const summaries = await DatabaseHelper.findMany<any>(query, [
-      courseId,
-      safeLimit,
-      safeOffset,
-    ]);
+    const summaries = await DatabaseHelper.findMany<any>(query, [courseId]);
 
     return summaries.map((s: any) => {
       if (s.key_points) {

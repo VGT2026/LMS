@@ -44,7 +44,7 @@ export class SupportTicketModel {
   }
 
   static async findRecentWithUser(limit: number = 10): Promise<SupportTicketWithUser[]> {
-    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const safeLimit = Math.min(Math.max(1, Math.floor(Number(limit)) || 10), 100);
     const query = `
       SELECT
         t.id,
@@ -60,10 +60,10 @@ export class SupportTicketModel {
       INNER JOIN users u ON u.id = t.user_id
       WHERE u.role IN ('student', 'instructor')
       ORDER BY t.created_at DESC
-      LIMIT ?
+      LIMIT ${safeLimit}
     `;
     try {
-      return await DatabaseHelper.findMany<SupportTicketWithUser>(query, [safeLimit]);
+      return await DatabaseHelper.findMany<SupportTicketWithUser>(query, []);
     } catch (err: unknown) {
       const code = (err as { code?: string; errno?: number })?.code;
       const errno = (err as { errno?: number })?.errno;

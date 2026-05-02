@@ -29,13 +29,15 @@ export class MessageModel {
   }
 
   static async findByConversation(conversationId: number, limit = 50, offset = 0): Promise<Message[]> {
+    const lim = Math.max(1, Math.min(Math.floor(Number(limit)) || 50, 500));
+    const off = Math.min(Math.max(0, Math.floor(Number(offset)) || 0), 10_000_000);
     const query = `
       SELECT * FROM messages
       WHERE conversation_id = ?
       ORDER BY created_at ASC
-      LIMIT ? OFFSET ?
+      LIMIT ${lim} OFFSET ${off}
     `;
-    return DatabaseHelper.findMany<Message>(query, [conversationId, limit, offset]);
+    return DatabaseHelper.findMany<Message>(query, [conversationId]);
   }
 
   static async findById(id: number): Promise<Message | null> {

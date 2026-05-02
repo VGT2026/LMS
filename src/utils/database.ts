@@ -112,16 +112,21 @@ export class DatabaseHelper {
     return result?.count || 0;
   }
 
-  // Pagination helper
+  /**
+   * Appends ORDER BY … LIMIT … OFFSET …. Uses integer literals for LIMIT/OFFSET (values are sanitized),
+   * because some MySQL proxies (e.g. Railway) reject prepared placeholders there (ER_WRONG_ARGUMENTS 1210).
+   */
   static getPaginationQuery(
     baseQuery: string,
     page: number = 1,
     limit: number = 10,
     orderBy: string = 'created_at DESC'
   ): { query: string; params: any[] } {
-    const offset = (page - 1) * limit;
-    const query = `${baseQuery} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-    return { query, params: [limit, offset] };
+    const pg = Math.max(1, Math.min(Math.floor(Number(page)) || 1, 1_000_000));
+    const lim = Math.max(1, Math.min(Math.floor(Number(limit)) || 10, 100_000));
+    const offset = Math.min(Math.max(0, (pg - 1) * lim), Number.MAX_SAFE_INTEGER);
+    const query = `${baseQuery} ORDER BY ${orderBy} LIMIT ${lim} OFFSET ${offset}`;
+    return { query, params: [] };
   }
 
   // Search helper

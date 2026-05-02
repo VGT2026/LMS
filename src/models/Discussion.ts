@@ -66,9 +66,15 @@ export class DiscussionModel {
       FROM discussions p
       JOIN users u ON p.user_id = u.id
       ORDER BY p.is_pinned DESC, p.created_at DESC
-      LIMIT ? OFFSET ?
+      LIMIT ${Math.max(1, Math.min(Math.floor(Number(limit)) || 50, 500))} OFFSET ${Math.min(
+        Math.max(0, Math.floor(Number(offset)) || 0),
+        10_000_000
+      )}
     `;
-    const rows = await DatabaseHelper.findMany<Omit<DiscussionPostWithAuthor, 'is_liked'> & { is_liked: number }>(query, [userId || 0, limit, offset]);
+    const rows = await DatabaseHelper.findMany<Omit<DiscussionPostWithAuthor, 'is_liked'> & { is_liked: number }>(
+      query,
+      [userId || 0]
+    );
     return rows.map(row => ({
       ...row,
       is_liked: !!row.is_liked
