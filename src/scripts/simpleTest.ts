@@ -1,9 +1,11 @@
+import { API_ORIGIN } from './apiOrigin';
+
 // Simple test using built-in fetch
 const testRegistration = async () => {
   try {
     console.log('🧪 Testing Student Registration...');
 
-    const response = await fetch('http://localhost:3001/api/auth/register', {
+    const response = await fetch(`${API_ORIGIN}/api/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
