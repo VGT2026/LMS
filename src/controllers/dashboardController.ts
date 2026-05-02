@@ -77,19 +77,19 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const [userStats, courseResult] = await Promise.all([
+    // Use aggregates only — avoids querying optional columns like approval_status required by findAll().
+    const [userStats, courseStats] = await Promise.all([
       UserModel.getStats(),
-      CourseModel.findAll({ limit: 10000 }),
+      CourseModel.getStats(),
     ]);
-    const courses = courseResult.courses;
 
     sendSuccess(
       res,
       {
         totalUsers: userStats.total,
         activeUsers: userStats.active,
-        totalCourses: courses.length,
-        activeCourses: courses.filter((c) => c.is_active).length,
+        totalCourses: courseStats.total,
+        activeCourses: courseStats.active,
       },
       'Admin stats retrieved'
     );

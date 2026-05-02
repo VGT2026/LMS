@@ -33,5 +33,5 @@ ENV PORT=3000
 # Railway uses dynamic port
 EXPOSE 3000
 
-# Start app (auto-detect dist or fallback)
-CMD ["sh", "-c", "node dist/server.js || node src/server.ts"]
+# Migrations align Railway/schema drift (e.g. approval_status, support_tickets), then serve
+CMD ["npm", "start"]

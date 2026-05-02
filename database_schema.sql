@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS courses (
     price DECIMAL(10,2) DEFAULT 0.00,
     level ENUM('beginner', 'intermediate', 'advanced') DEFAULT 'beginner',
     is_active BOOLEAN DEFAULT TRUE,
+    approval_status ENUM('pending', 'approved', 'rejected') DEFAULT 'approved',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (instructor_id) REFERENCES users(id),
@@ -295,6 +296,19 @@ CREATE TABLE IF NOT EXISTS announcements (
     INDEX idx_user (user_id),
     INDEX idx_type (type),
     INDEX idx_active (is_active)
+);
+
+-- Help & Support tickets (listed on admin dashboard)
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    category VARCHAR(64) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_created (created_at),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Insert default admin user (password will be hashed by application)
