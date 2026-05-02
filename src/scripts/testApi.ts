@@ -1,11 +1,17 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import fetch from 'node-fetch';
+
+/** API origin (no trailing slash). Override with API_BASE_URL for staging/production. */
+const API_ORIGIN = (process.env.API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 // Test admin login
 const testAdminLogin = async () => {
   try {
     console.log('🧪 Testing Admin Login...');
 
-    const response = await fetch('http://localhost:3001/api/auth/login', {
+    const response = await fetch(`${API_ORIGIN}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -25,7 +31,7 @@ const testAdminLogin = async () => {
 
       // Test getting users with admin token
       console.log('\n🧪 Testing Admin Get Users...');
-      const usersResponse = await fetch('http://localhost:3001/api/auth/admin/users', {
+      const usersResponse = await fetch(`${API_ORIGIN}/api/auth/admin/users`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${data.data.token}`
@@ -53,7 +59,7 @@ const testStudentRegistration = async () => {
   try {
     console.log('\n🧪 Testing Student Registration...');
 
-    const response = await fetch('http://localhost:3001/api/auth/register', {
+    const response = await fetch(`${API_ORIGIN}/api/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -85,7 +91,7 @@ const testInstructorCreation = async () => {
     console.log('\n🧪 Testing Instructor Creation...');
 
     // First login as admin
-    const loginResponse = await fetch('http://localhost:3001/api/auth/login', {
+    const loginResponse = await fetch(`${API_ORIGIN}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -104,7 +110,7 @@ const testInstructorCreation = async () => {
     }
 
     // Create instructor
-    const createResponse = await fetch('http://localhost:3001/api/auth/admin/instructor', {
+    const createResponse = await fetch(`${API_ORIGIN}/api/auth/admin/instructor`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
