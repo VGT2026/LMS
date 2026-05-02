@@ -13,6 +13,13 @@ console.log('✅ [AIOPENAI.TS] Routes file loaded - NEW OpenAI routes are ready!
 
 const router: Router = express.Router();
 
+const methodNotAllowedForAsk = (_req: express.Request, res: express.Response) => {
+  res.status(405).json({
+    success: false,
+    message: 'Method not allowed. Use POST /api/ai/ask with JSON body { question, context?, courseId?, courseTitle? }',
+  });
+};
+
 /**
  * AI Routes with OpenAI Integration
  * All endpoints require authentication except health check
@@ -42,6 +49,13 @@ const router: Router = express.Router();
  * }
  */
 router.post('/ask', authenticate, askAITutor);
+// Compatibility aliases used by some frontend builds
+router.post('/tutor', authenticate, askAITutor);
+router.post('/chat', authenticate, askAITutor);
+// Helpful response when request method is wrong
+router.get('/ask', authenticate, methodNotAllowedForAsk);
+router.get('/tutor', authenticate, methodNotAllowedForAsk);
+router.get('/chat', authenticate, methodNotAllowedForAsk);
 
 /**
  * POST /api/ai/summarize
