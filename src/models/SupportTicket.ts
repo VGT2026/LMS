@@ -62,7 +62,19 @@ export class SupportTicketModel {
       ORDER BY t.created_at DESC
       LIMIT ?
     `;
-    return DatabaseHelper.findMany<SupportTicketWithUser>(query, [safeLimit]);
+    try {
+      return await DatabaseHelper.findMany<SupportTicketWithUser>(query, [safeLimit]);
+    } catch (err: unknown) {
+      const code = (err as { code?: string; errno?: number })?.code;
+      const errno = (err as { errno?: number })?.errno;
+      if (code === 'ER_NO_SUCH_TABLE' || errno === 1146) {
+        console.warn(
+          '[SupportTicket] support_tickets table missing — run `npm run db:migrate` or deploy with `npm start` (migrations first). Returning [].'
+        );
+        return [];
+      }
+      throw err;
+    }
   }
 }
 

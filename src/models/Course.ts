@@ -205,6 +205,7 @@ export class CourseModel {
     const total = countResult?.total || 0;
 
     // Get paginated results (include module_count and students)
+    // Must qualify sort column: both `courses` and `users` have `created_at` (MySQL error 1052 otherwise).
     const { query: paginatedQuery, params: paginatedParams } = DatabaseHelper.getPaginationQuery(
       `SELECT c.id, c.title, c.description, c.instructor_id, c.category, c.thumbnail,
               c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
@@ -215,7 +216,8 @@ export class CourseModel {
        LEFT JOIN users u ON c.instructor_id = u.id
        ${whereClause}`,
       page,
-      limit
+      limit,
+      'c.created_at DESC'
     );
 
     const courses = await DatabaseHelper.findMany<CourseType & { instructor_name?: string; instructor_email?: string; module_count?: number; students?: number }>(
