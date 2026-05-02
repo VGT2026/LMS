@@ -1,8 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-/** API origin (no trailing slash). Override with API_BASE_URL for staging/production. */
-const API_ORIGIN = (process.env.API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
+import { API_ORIGIN } from './apiOrigin';
 
 // Test new student registration
 const testNewRegistration = async () => {
