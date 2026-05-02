@@ -1,9 +1,15 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+/** API origin (no trailing slash). Override with API_BASE_URL for staging/production. */
+const API_ORIGIN = (process.env.API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
+
 // Test new student registration
 const testNewRegistration = async () => {
   try {
     console.log('🧪 Testing New Student Registration...');
 
-    const response = await fetch('http://localhost:3001/api/auth/register', {
+    const response = await fetch(`${API_ORIGIN}/api/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
