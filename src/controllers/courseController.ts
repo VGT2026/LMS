@@ -53,6 +53,27 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+/** Admin approval queue — must be declared before GET /:id */
+export const getPendingCourses = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { page: qPage, limit: qLimit } = req.query;
+    const { page, limit } = parsePageLimit(qPage, qLimit);
+    const result = await CourseModel.findAll({ page, limit, approval_status: 'pending' });
+
+    sendPagination(
+      res,
+      result.courses,
+      result.page,
+      result.limit,
+      result.total,
+      'Pending courses retrieved successfully'
+    );
+  } catch (error) {
+    console.error('Get pending courses error:', error);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
 export const getCourseById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;

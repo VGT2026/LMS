@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getAllCourses,
+  getPendingCourses,
   getCourseById,
   createCourse,
   updateCourse,
@@ -20,6 +21,7 @@ const router = Router();
 // Public routes
 router.get('/', getAllCourses);
 router.get('/categories/all', getAllCategories);
+router.get('/pending', authenticate, requireAdmin, getPendingCourses);
 router.get('/:id', optionalAuthenticate, getCourseById);
 router.post('/:id/enroll', authenticate, enrollInCourse);
 

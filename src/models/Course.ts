@@ -1,4 +1,4 @@
-import { Course as CourseType } from '../types';
+import { Course as CourseType, CourseApprovalStatus } from '../types';
 import DatabaseHelper from '../utils/database';
 import { tableHasColumn } from '../utils/mysqlSchema';
 
@@ -158,13 +158,28 @@ export class CourseModel {
     is_active?: boolean;
     include_inactive?: boolean;
     search?: string;
+    /** Narrow by workflow state (ignored if approval_status column is missing → empty page) */
+    approval_status?: CourseApprovalStatus;
   } = {}): Promise<{ courses: CourseType[]; total: number; page: number; limit: number }> {
-    const { page = 1, limit = 10, category, instructor_id, is_active, include_inactive, search } = options;
+    const {
+      page = 1,
+      limit = 10,
+      category,
+      instructor_id,
+      is_active,
+      include_inactive,
+      search,
+      approval_status: approvalFilter,
+    } = options;
 
     const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
     const approvalProjection = hasApprovalStatus
       ? 'c.approval_status'
       : `'approved' AS approval_status`;
+
+    if (approvalFilter !== undefined && !hasApprovalStatus) {
+      return { courses: [], total: 0, page, limit };
+    }
 
     let whereConditions: string[] = [];
     let params: any[] = [];
@@ -180,15 +195,20 @@ export class CourseModel {
       params.push(instructor_id);
     }
 
-    if (include_inactive) {
-      if (hasApprovalStatus) {
-        whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
-      }
-    } else if (is_active !== undefined) {
-      whereConditions.push('c.is_active = ?');
-      params.push(is_active);
-      if (is_active && hasApprovalStatus) {
-        whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+    if (approvalFilter !== undefined && hasApprovalStatus) {
+      whereConditions.push('c.approval_status = ?');
+      params.push(approvalFilter);
+    } else {
+      if (include_inactive) {
+        if (hasApprovalStatus) {
+          whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+        }
+      } else if (is_active !== undefined) {
+        whereConditions.push('c.is_active = ?');
+        params.push(is_active);
+        if (is_active && hasApprovalStatus) {
+          whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+        }
       }
     }
 
