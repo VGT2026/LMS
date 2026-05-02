@@ -54,7 +54,9 @@ router.patch('/profile', authenticate, updateProfile);
 router.post('/change-password', authenticate, changePassword);
 router.patch('/change-password', authenticate, changePassword);
 router.get('/search', authenticate, searchUsers);
-router.get('/instructors', authenticate, getInstructors); // Allow all auth users to see instructors
+router.get('/instructors', authenticate, getInstructors); // Any authenticated user
+// Admin dashboard / API docs entry point — same payload as GET /instructors but admin-only
+router.get('/admin/instructors', authenticate, requireAdmin, getInstructors);
 
 // Admin routes
 router.post('/admin/instructor', authenticate, requireAdmin, [
@@ -64,8 +66,6 @@ router.post('/admin/instructor', authenticate, requireAdmin, [
 ], handleValidation, createInstructor);
 
 router.get('/admin/users', authenticate, requireAdmin, getAllUsers);
-
-// router.get('/admin/instructors', authenticate, requireAdmin, getInstructors); // Moved to public authenticated
 
 router.patch('/admin/users/:id/toggle-status', authenticate, requireAdmin, toggleUserStatus);
 
