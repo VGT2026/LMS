@@ -4,28 +4,7 @@ import { CourseModel } from '../models/Course';
 import { UserModel } from '../models/User';
 import { EnrollmentModel } from '../models/Enrollment';
 import { Course } from '../types';
-
-/** First value for a query field (arrays from repeated keys confuse `Number(page)` into NaN) */
-function queryScalar(v: unknown): string | undefined {
-  if (v === undefined || v === null) return undefined;
-  if (Array.isArray(v)) return v.length > 0 && v[0] != null ? String(v[0]) : undefined;
-  if (typeof v === 'object') return undefined;
-  return String(v);
-}
-
-/** Safe integers for MySQL LIMIT/OFFSET (NaN binds break mysql2 pooled statements). */
-function parsePageLimit(rawPage: unknown, rawLimit: unknown): { page: number; limit: number } {
-  const pStr = queryScalar(rawPage);
-  const lStr = queryScalar(rawLimit);
-
-  const p = pStr !== undefined && pStr !== '' ? Number(pStr) : 1;
-  const l = lStr !== undefined && lStr !== '' ? Number(lStr) : 10;
-
-  const page = Number.isFinite(p) && p >= 1 ? Math.min(Math.floor(p), 1_000_000) : 1;
-  const limit = Number.isFinite(l) && l >= 1 ? Math.min(Math.max(Math.floor(l), 1), 10_000) : 10;
-
-  return { page, limit };
-}
+import { parsePageLimit } from '../utils/queryParse';
 
 export const getAllCourses = async (req: Request, res: Response): Promise<void> => {
   try {

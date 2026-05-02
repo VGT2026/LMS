@@ -5,6 +5,7 @@ import { comparePassword, generateToken, hashPassword } from '../utils/auth';
 import { LoginRequest, RegisterRequest, User, UserRole } from '../types';
 import { UserModel } from '../models/User';
 import { verifyFirebaseToken, isFirebaseConfigured } from '../utils/firebase';
+import { parsePageLimit, queryScalar } from '../utils/queryParse';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -452,20 +453,19 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const { role, page = 1, limit = 10, search } = req.query;
+    const { role: qRole, page: qPage, limit: qLimit, search: qSearch } = req.query;
 
-    // Build query options
-    const options: any = {
-      page: Number(page),
-      limit: Number(limit),
-    };
+    const { page, limit } = parsePageLimit(qPage, qLimit);
+    const options: Parameters<typeof UserModel.findAll>[0] = { page, limit };
 
-    if (role && typeof role === 'string') {
-      options.role = role as UserRole;
+    const roleStr = queryScalar(qRole);
+    if (roleStr === 'student' || roleStr === 'instructor' || roleStr === 'admin') {
+      options.role = roleStr as UserRole;
     }
 
-    if (search && typeof search === 'string') {
-      options.search = search;
+    const searchStr = queryScalar(qSearch);
+    if (searchStr?.trim()) {
+      options.search = searchStr.trim();
     }
 
     const result = await UserModel.findAll(options);
