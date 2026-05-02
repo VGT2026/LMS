@@ -47,15 +47,18 @@ const limiter = rateLimit({
 
 // Middleware
 app.use(helmet()); // Security headers
-const rawCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8081')
+// Vite in this repo uses 8080; some docs use 8081 — allow both in dev if CORS_ORIGIN is unset
+const rawCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8080,http://localhost:8081')
   .split(',')
   .map((origin) => origin.trim().replace(/\/$/, ''))
   .filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow server-to-server requests and tools like Postman
+    if (!origin) return callback(null, true); // server-to-server, curl, Postman (no Origin header)
     if (rawCorsOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS origin denied: ${origin}`));
+    // Deny without throwing — avoids HTTP 500 on browser preflight when origin is wrong
+    console.warn(`[CORS] Blocked origin: ${origin}. Allowed: ${rawCorsOrigins.join(', ') || '(none)'}`);
+    callback(null, false);
   },
   credentials: true,
 }));
