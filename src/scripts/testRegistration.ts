@@ -1,6 +1,6 @@
-import fetch from 'node-fetch';
+import { API_ORIGIN } from './apiOrigin';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE = `${API_ORIGIN}/api`;
 
 async function testRegistration() {
   try {
@@ -16,7 +16,7 @@ async function testRegistration() {
     console.log('📤 Sending registration request...');
     console.log('Data:', registrationData);
 
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    const response = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -37,7 +37,7 @@ async function testRegistration() {
 
       // Test login with the created user
       console.log('\n🔐 Testing login with created user...');
-      const loginResponse = await fetch(`${API_BASE_URL}/auth/login`, {
+      const loginResponse = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
