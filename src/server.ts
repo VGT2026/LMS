@@ -47,17 +47,37 @@ const limiter = rateLimit({
 
 // Middleware
 app.use(helmet()); // Security headers
-// Vite in this repo uses 8080; some docs use 8081 — allow both in dev if CORS_ORIGIN is unset
-const rawCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8080,http://localhost:8081')
-  .split(',')
-  .map((origin) => origin.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+// Browser Origin is scheme+host+port only (no path). Allow list may use trailing / or /* by mistake.
+function normalizeCorsOrigin(value: string): string {
+  let s = value.trim();
+  if (s.endsWith('/*')) s = s.slice(0, -2);
+  return s.replace(/\/+$/, '');
+}
+// Production: never default to localhost — set CORS_ORIGIN to your deployed frontend origin only.
+// Non-production: if CORS_ORIGIN is unset, allow common local Vite ports.
+const corsRaw =
+  process.env.CORS_ORIGIN?.trim() ||
+  (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8080,http://localhost:8081');
+const allowedCorsOrigins = new Set(
+  corsRaw
+    .split(',')
+    .map(normalizeCorsOrigin)
+    .filter(Boolean)
+);
+if (process.env.NODE_ENV === 'production' && allowedCorsOrigins.size === 0) {
+  console.warn(
+    '[CORS] NODE_ENV=production but CORS_ORIGIN is empty — browsers will be blocked unless Origin is omitted (e.g. curl).'
+  );
+}
+const allowedCorsOriginsList = [...allowedCorsOrigins];
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // server-to-server, curl, Postman (no Origin header)
-    if (rawCorsOrigins.includes(origin)) return callback(null, true);
+    if (allowedCorsOrigins.has(normalizeCorsOrigin(origin))) return callback(null, true);
     // Deny without throwing — avoids HTTP 500 on browser preflight when origin is wrong
-    console.warn(`[CORS] Blocked origin: ${origin}. Allowed: ${rawCorsOrigins.join(', ') || '(none)'}`);
+    console.warn(
+      `[CORS] Blocked origin: ${origin}. Allowed: ${allowedCorsOriginsList.join(', ') || '(none)'}`
+    );
     callback(null, false);
   },
   credentials: true,
