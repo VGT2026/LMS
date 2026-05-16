@@ -6,6 +6,8 @@ import { LoginRequest, RegisterRequest, User, UserRole } from '../types';
 import { UserModel } from '../models/User';
 import { verifyFirebaseToken, isFirebaseConfigured } from '../utils/firebase';
 import { parsePageLimit, queryScalar } from '../utils/queryParse';
+import { hasAdminPanelAccess, canAssignRole, isValidUserRole } from '../utils/rolePolicy';
+import { AuditLogModel } from '../models/AuditLog';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -21,7 +23,7 @@ export const devAdminLogin = async (req: Request, res: Response): Promise<void> 
       return;
     }
     const admin = await UserModel.findByEmail('admin@lmspro.com');
-    if (!admin || admin.role !== 'admin') {
+    if (!admin || !hasAdminPanelAccess(admin.role)) {
       sendError(res, 'Admin not found. Visit /api/auth/reset-admin first', 404);
       return;
     }
@@ -337,9 +339,8 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
 
 export const createInstructor = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Only admin can create instructors
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || !hasAdminPanelAccess(adminUser.role)) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -446,9 +447,8 @@ export const createInstructor = async (req: Request, res: Response): Promise<voi
 
 export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Only admin can view all users
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || !hasAdminPanelAccess(adminUser.role)) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -459,8 +459,8 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
     const options: Parameters<typeof UserModel.findAll>[0] = { page, limit };
 
     const roleStr = queryScalar(qRole);
-    if (roleStr === 'student' || roleStr === 'instructor' || roleStr === 'admin') {
-      options.role = roleStr as UserRole;
+    if (roleStr && isValidUserRole(roleStr)) {
+      options.role = roleStr;
     }
 
     const searchStr = queryScalar(qSearch);
@@ -485,9 +485,8 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
 
 export const toggleUserStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Only admin can toggle user status
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || !hasAdminPanelAccess(adminUser.role)) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -507,6 +506,16 @@ export const toggleUserStatus = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    const target = await UserModel.findById(userId);
+    if (!target) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+    if (target.role === 'superadmin') {
+      sendError(res, 'Cannot change status of superadmin users', 403);
+      return;
+    }
+
     const updatedUser = await UserModel.toggleActiveStatus(userId);
 
     if (!updatedUser) {
@@ -514,7 +523,6 @@ export const toggleUserStatus = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    // Return user without password
     const { password, ...userWithoutPassword } = updatedUser;
 
     sendSuccess(res, userWithoutPassword, 'User status updated successfully');
@@ -570,7 +578,7 @@ export const searchUsers = async (req: Request, res: Response): Promise<void> =>
     // Filter out current user and return minimal info
     const users = result.users
       .filter(u => u.id !== user.userId)
-      .filter(u => !(user.role === 'student' && u.role === 'admin'))
+      .filter(u => !(user.role === 'student' && (u.role === 'admin' || u.role === 'superadmin')))
       .map(u => ({
         id: u.id,
         name: u.name,
@@ -773,9 +781,8 @@ export const firebaseAuth = async (req: Request, res: Response): Promise<void> =
 
 export const updateUserRole = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Only admin can update user roles
-    const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    const actor = req.user;
+    if (!actor || !hasAdminPanelAccess(actor.role)) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -783,23 +790,45 @@ export const updateUserRole = async (req: Request, res: Response): Promise<void>
     const { id } = req.params;
     const { role: roleParam } = req.body;
     const idString = Array.isArray(id) ? id[0] : id;
-    const userId = parseInt(idString);
+    const userId = parseInt(idString, 10);
 
     if (isNaN(userId)) {
       sendError(res, 'Invalid user ID', 400);
       return;
     }
 
-    const role = Array.isArray(roleParam) ? roleParam[0] : roleParam;
-    if (!role || !['student', 'instructor', 'admin'].includes(role)) {
+    const roleRaw = Array.isArray(roleParam) ? roleParam[0] : roleParam;
+    if (!roleRaw || !isValidUserRole(String(roleRaw))) {
       sendError(res, 'Invalid role specified', 400);
       return;
     }
+    const role = roleRaw as UserRole;
 
-    // Prevent admin from demoting themselves
-    if (userId === adminUser.userId && role !== 'admin') {
-      sendError(res, 'Cannot change your own admin role', 400);
+    if (!canAssignRole(actor.role, role)) {
+      sendError(res, 'Only superadmin can assign admin or superadmin roles', 403);
       return;
+    }
+
+    const target = await UserModel.findById(userId);
+    if (!target) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+
+    if (target.role === 'superadmin' && actor.role !== 'superadmin') {
+      sendError(res, 'Cannot modify superadmin users', 403);
+      return;
+    }
+
+    if (userId === actor.userId) {
+      if (actor.role === 'admin' && role !== 'admin') {
+        sendError(res, 'Cannot change your own admin role', 400);
+        return;
+      }
+      if (actor.role === 'superadmin' && role !== 'superadmin') {
+        sendError(res, 'Cannot change your own superadmin role', 400);
+        return;
+      }
     }
 
     const updatedUser = await UserModel.update(userId, { role });
@@ -809,7 +838,13 @@ export const updateUserRole = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Return user without password
+    await AuditLogModel.record({
+      actor_id: actor.userId,
+      action: 'user.role.update',
+      target_user_id: userId,
+      metadata: { from: target.role, to: role },
+    });
+
     const { password, ...userWithoutPassword } = updatedUser;
 
     sendSuccess(res, userWithoutPassword, 'User role updated successfully');

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
@@ -339,6 +340,74 @@ const runMigrations = async () => {
     } catch (err: any) {
       if (err.code === 'ER_TABLE_EXISTS_ERROR') console.log('⏭️ ai_summaries table already exists');
       else throw err;
+    }
+
+    // Migration: extend users.role ENUM with superadmin
+    try {
+      await connection.query(
+        "ALTER TABLE users MODIFY COLUMN role ENUM('student', 'instructor', 'admin', 'superadmin') NOT NULL DEFAULT 'student'"
+      );
+      console.log('✅ users.role ENUM includes superadmin');
+    } catch (err: any) {
+      if (err.code === 'ER_PARSE_ERROR' || err.code === 'ER_TRUNCATED_WRONG_VALUE') {
+        console.warn('⚠️ Could not alter users.role ENUM:', err.message);
+      } else if (err.code !== 'ER_DUP_FIELDNAME') {
+        console.log('⏭️ users.role ENUM may already include superadmin');
+      }
+    }
+
+    // Migration: audit_logs table
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          actor_id INT NOT NULL,
+          action VARCHAR(64) NOT NULL,
+          target_user_id INT NULL,
+          metadata JSON NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL,
+          INDEX idx_actor (actor_id),
+          INDEX idx_action (action),
+          INDEX idx_target (target_user_id),
+          INDEX idx_created (created_at)
+        )
+      `);
+      console.log('✅ audit_logs table ready');
+    } catch (err: any) {
+      if (err.code === 'ER_TABLE_EXISTS_ERROR') console.log('⏭️ audit_logs already exists');
+      else throw err;
+    }
+
+    // Bootstrap superadmin from env (create only if missing)
+    const superEmail = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
+    const superPassword = process.env.SUPERADMIN_PASSWORD;
+    const superName = process.env.SUPERADMIN_NAME?.trim() || 'Super Administrator';
+    if (superEmail && superPassword) {
+      const [existing] = await connection.query<mysql.RowDataPacket[]>(
+        'SELECT id, role FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
+        [superEmail]
+      );
+      if (existing.length === 0) {
+        const hash = await bcrypt.hash(superPassword, 12);
+        await connection.query(
+          `INSERT INTO users (name, email, password, role, is_active, preferred_categories, completed_course_ids)
+           VALUES (?, ?, ?, 'superadmin', TRUE, '[]', '[]')`,
+          [superName, superEmail, hash]
+        );
+        console.log('✅ Bootstrap superadmin created:', superEmail);
+      } else {
+        const row = existing[0];
+        if (row.role !== 'superadmin') {
+          await connection.query("UPDATE users SET role = 'superadmin' WHERE id = ?", [row.id]);
+          console.log('✅ Upgraded existing user to superadmin:', superEmail);
+        } else {
+          console.log('⏭️ Bootstrap superadmin already exists:', superEmail);
+        }
+      }
+    } else {
+      console.log('⏭️ SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD not set — skip bootstrap superadmin');
     }
 
     console.log('🎯 Migrations complete');

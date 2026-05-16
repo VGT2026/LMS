@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(150) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    role ENUM('student', 'instructor', 'admin') NOT NULL DEFAULT 'student',
+    role ENUM('student', 'instructor', 'admin', 'superadmin') NOT NULL DEFAULT 'student',
     avatar VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     preferred_categories JSON,
@@ -20,6 +20,22 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_email (email),
     INDEX idx_role (role),
     INDEX idx_is_active (is_active)
+);
+
+-- Audit log for privileged actions (superadmin / role changes)
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    actor_id INT NOT NULL,
+    action VARCHAR(64) NOT NULL,
+    target_user_id INT NULL,
+    metadata JSON NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_actor (actor_id),
+    INDEX idx_action (action),
+    INDEX idx_target (target_user_id),
+    INDEX idx_created (created_at)
 );
 
 -- Job roles table

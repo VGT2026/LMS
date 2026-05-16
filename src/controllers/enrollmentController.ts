@@ -12,7 +12,7 @@ export const getEnrollmentsByCourse = async (req: Request, res: Response): Promi
     }
 
     // Only instructors and admins can view course enrollments
-    if (user.role !== 'instructor' && user.role !== 'admin') {
+    if (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin') {
       sendError(res, 'Instructor access required', 403);
       return;
     }

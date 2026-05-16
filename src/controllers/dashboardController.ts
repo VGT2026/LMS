@@ -4,6 +4,7 @@ import { EnrollmentModel } from '../models/Enrollment';
 import { UserModel } from '../models/User';
 import { CourseModel } from '../models/Course';
 import DatabaseHelper from '../utils/database';
+import { hasAdminPanelAccess } from '../utils/rolePolicy';
 
 export const getEnrolledCourses = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -72,7 +73,7 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
       sendError(res, 'Authentication required', 401);
       return;
     }
-    if (user.role !== 'admin') {
+    if (!hasAdminPanelAccess(user.role)) {
       sendError(res, 'Admin access only', 403);
       return;
     }

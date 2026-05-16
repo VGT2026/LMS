@@ -1,7 +1,30 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { login, register, getProfile, updateProfile, changePassword, createInstructor, getAllUsers, getInstructors, toggleUserStatus, updateUserRole, resetAdminDev, devAdminLogin, firebaseAuth, searchUsers } from '../controllers/authController';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import rateLimit from 'express-rate-limit';
+import {
+  login,
+  register,
+  getProfile,
+  updateProfile,
+  changePassword,
+  createInstructor,
+  getAllUsers,
+  getInstructors,
+  toggleUserStatus,
+  updateUserRole,
+  resetAdminDev,
+  devAdminLogin,
+  firebaseAuth,
+  searchUsers,
+} from '../controllers/authController';
+import {
+  createAdmin,
+  listAdmins,
+  toggleAdminDeactivate,
+  getSuperadminStats,
+} from '../controllers/superadminController';
+import { authenticate, requireAdmin, requireSuperadmin } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
+import { USER_ROLES } from '../utils/rolePolicy';
 
 const router = Router();
 
@@ -14,7 +37,17 @@ const handleValidation = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
-// Validation middleware (no normalizeEmail - we normalize in controller to avoid any transform issues)
+const createAdminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.SUPERADMIN_CREATE_ADMIN_MAX || '5', 10),
+  message: {
+    success: false,
+    message: 'Too many create-admin attempts. Please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const loginValidation = [
   body('email').isEmail().withMessage('Valid email required').trim(),
   body('password').notEmpty().withMessage('Password required'),
@@ -32,45 +65,87 @@ const registerValidation = [
   }),
 ];
 
+const createAdminValidation = [
+  body('name').trim().isLength({ min: 2, max: 50 }),
+  body('email').isEmail().normalizeEmail(),
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/[a-zA-Z]/)
+    .withMessage('Password must contain a letter')
+    .matches(/[0-9]/)
+    .withMessage('Password must contain a number'),
+];
+
 // Public routes
 router.post('/login', loginValidation, handleValidation, login);
 router.post('/register', registerValidation, handleValidation, register);
-router.post('/firebase', [
-  body('idToken').notEmpty().withMessage('Firebase ID token required'),
-], handleValidation, firebaseAuth);
+router.post(
+  '/firebase',
+  [body('idToken').notEmpty().withMessage('Firebase ID token required')],
+  handleValidation,
+  firebaseAuth
+);
 
-// Forgot/reset password: use Firebase sendPasswordResetEmail on frontend (no backend implementation)
-
-// Dev-only: reset admin password (visit /api/auth/reset-admin in browser)
 router.get('/reset-admin', resetAdminDev);
-// Dev-only: login as admin with just password (bypasses email)
 router.post('/dev-admin-login', devAdminLogin);
 
 // Protected routes
 router.get('/profile', authenticate, getProfile);
-// POST aliases: some environments/proxies mishandle PATCH — same handlers
 router.post('/profile', authenticate, updateProfile);
 router.patch('/profile', authenticate, updateProfile);
 router.post('/change-password', authenticate, changePassword);
 router.patch('/change-password', authenticate, changePassword);
 router.get('/search', authenticate, searchUsers);
-router.get('/instructors', authenticate, getInstructors); // Any authenticated user
-// Admin dashboard / API docs entry point — same payload as GET /instructors but admin-only
+router.get('/instructors', authenticate, getInstructors);
+
+// Admin dashboard routes (admin + superadmin)
 router.get('/admin/instructors', authenticate, requireAdmin, getInstructors);
 
-// Admin routes
-router.post('/admin/instructor', authenticate, requireAdmin, [
-  body('name').trim().isLength({ min: 2, max: 50 }),
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }),
-], handleValidation, createInstructor);
+router.post(
+  '/admin/instructor',
+  authenticate,
+  requireAdmin,
+  [
+    body('name').trim().isLength({ min: 2, max: 50 }),
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 6 }),
+  ],
+  handleValidation,
+  createInstructor
+);
 
 router.get('/admin/users', authenticate, requireAdmin, getAllUsers);
-
 router.patch('/admin/users/:id/toggle-status', authenticate, requireAdmin, toggleUserStatus);
+router.patch(
+  '/admin/users/:id/role',
+  authenticate,
+  requireAdmin,
+  [body('role').isIn(USER_ROLES)],
+  handleValidation,
+  updateUserRole
+);
 
-router.patch('/admin/users/:id/role', authenticate, requireAdmin, [
-  body('role').isIn(['student', 'instructor', 'admin']),
-], updateUserRole);
+// Superadmin-only routes
+router.post(
+  '/superadmin/admin',
+  authenticate,
+  requireSuperadmin,
+  createAdminLimiter,
+  createAdminValidation,
+  handleValidation,
+  createAdmin
+);
+
+router.get('/superadmin/admins', authenticate, requireSuperadmin, listAdmins);
+
+router.patch(
+  '/superadmin/admins/:userId/deactivate',
+  authenticate,
+  requireSuperadmin,
+  toggleAdminDeactivate
+);
+
+router.get('/superadmin/stats', authenticate, requireSuperadmin, getSuperadminStats);
 
 export default router;

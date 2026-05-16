@@ -151,7 +151,7 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
 
     if (user.role === 'instructor') {
       instructor_id = user.userId;
-    } else if (user.role === 'admin') {
+    } else if (user.role === 'admin' || user.role === 'superadmin') {
       if (instructorIdParam != null) {
         const parsed = typeof instructorIdParam === 'number' ? instructorIdParam : parseInt(String(instructorIdParam));
         if (isNaN(parsed)) {
@@ -269,7 +269,7 @@ export const assignInstructor = async (req: Request, res: Response): Promise<voi
   try {
     // Only admin can assign instructors to courses
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'superadmin')) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -309,7 +309,7 @@ export const assignInstructor = async (req: Request, res: Response): Promise<voi
 export const approveCourse = async (req: Request, res: Response): Promise<void> => {
   try {
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'superadmin')) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -399,7 +399,7 @@ export const publishCourse = async (req: Request, res: Response): Promise<void> 
 export const unpublishCourse = async (req: Request, res: Response): Promise<void> => {
   try {
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'superadmin')) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -474,7 +474,7 @@ export const enrollInCourse = async (req: Request, res: Response): Promise<void>
 export const toggleCourseStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'superadmin')) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }
@@ -516,7 +516,7 @@ export const getInstructors = async (req: Request, res: Response): Promise<void>
   try {
     // Only admin can view instructors list
     const adminUser = req.user;
-    if (!adminUser || adminUser.role !== 'admin') {
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'superadmin')) {
       sendError(res, 'Access denied. Admin privileges required.', 403);
       return;
     }

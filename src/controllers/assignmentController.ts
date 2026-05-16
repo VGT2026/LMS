@@ -24,7 +24,7 @@ export const listAssignments = async (req: Request, res: Response): Promise<void
         all.push(...list);
       }
       assignments = all.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
-    } else if (user.role === 'admin') {
+    } else if (user.role === 'admin' || user.role === 'superadmin') {
       const { courseId } = req.query;
       if (courseId) {
         assignments = await AssignmentModel.findByCourse(Number(courseId));
@@ -79,7 +79,7 @@ export const getAssignmentById = async (req: Request, res: Response): Promise<vo
 export const createAssignment = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }
@@ -123,7 +123,7 @@ export const createAssignment = async (req: Request, res: Response): Promise<voi
 export const publishAssignment = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }
@@ -358,7 +358,7 @@ Return only valid JSON in this exact format: {"score":<0-100>,"feedback":"..."}.
 export const listAllSubmissions = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }
@@ -434,7 +434,7 @@ export const getSubmission = async (req: Request, res: Response): Promise<void> 
 export const gradeSubmission = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }

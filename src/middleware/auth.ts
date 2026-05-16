@@ -3,6 +3,7 @@ import { verifyToken } from '../utils/auth';
 import { JWTPayload } from '../types';
 import { sendError } from '../utils/response';
 import { UserRole } from '../types';
+import { hasAdminPanelAccess } from '../utils/rolePolicy';
 import { UserModel } from '../models/User';
 
 // Extend Express Request interface
@@ -83,6 +84,21 @@ export const authorize = (...roles: UserRole[]) => {
 // Specific role-based middleware
 export const requireStudent = authorize('student');
 export const requireInstructor = authorize('instructor');
-export const requireAdmin = authorize('admin');
-export const requireInstructorOrAdmin = authorize('instructor', 'admin');
-export const requireAnyAuthenticated = authorize('student', 'instructor', 'admin');
+/** Admin dashboard routes: platform admin or superadmin */
+export const requireAdmin = authorize('admin', 'superadmin');
+export const requireSuperadmin = authorize('superadmin');
+export const requireInstructorOrAdmin = authorize('instructor', 'admin', 'superadmin');
+export const requireAnyAuthenticated = authorize('student', 'instructor', 'admin', 'superadmin');
+
+/** Alias: authenticate + admin panel role (use after authenticate). */
+export const requireAdminPanel = (req: Request, res: Response, next: NextFunction): void => {
+  if (!req.user) {
+    sendError(res, 'Authentication required', 401);
+    return;
+  }
+  if (!hasAdminPanelAccess(req.user.role)) {
+    sendError(res, 'Insufficient permissions', 403);
+    return;
+  }
+  next();
+};

@@ -11,7 +11,7 @@ const ensureInstructorCanEditCourse = async (req: Request, courseId: number): Pr
   if (!user) return 'Authentication required';
   const course = await CourseModel.findById(courseId);
   if (!course) return 'Course not found';
-  if (user.role === 'admin') return null;
+  if (user.role === 'admin' || user.role === 'superadmin') return null;
   if (user.role !== 'instructor') return 'Instructor access required';
   if (course.instructor_id !== user.userId) return 'You can only edit your own courses';
   const created = new Date((course as any).created_at).getTime();

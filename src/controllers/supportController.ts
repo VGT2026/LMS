@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { sendError, sendSuccess } from '../utils/response';
 import { SupportTicketModel } from '../models/SupportTicket';
+import { hasAdminPanelAccess } from '../utils/rolePolicy';
 
 export const createTicket = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -11,7 +12,7 @@ export const createTicket = async (req: Request, res: Response): Promise<void> =
     }
 
     // Admin should not submit support tickets; students/instructors can.
-    if (user.role === 'admin') {
+    if (hasAdminPanelAccess(user.role)) {
       sendError(res, 'Admins cannot submit support tickets', 403);
       return;
     }
@@ -48,7 +49,7 @@ export const createTicket = async (req: Request, res: Response): Promise<void> =
 
 export const listTickets = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.user || req.user.role !== 'admin') {
+    if (!req.user || !hasAdminPanelAccess(req.user.role)) {
       sendError(res, 'Admin access only', 403);
       return;
     }

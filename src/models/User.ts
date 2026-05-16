@@ -290,7 +290,8 @@ export class UserModel {
     const stats: Record<UserRole, number> = {
       student: 0,
       instructor: 0,
-      admin: 0
+      admin: 0,
+      superadmin: 0,
     };
 
     for (const role of Object.keys(stats) as UserRole[]) {

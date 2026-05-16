@@ -47,7 +47,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       if (!recipient) {
         return res.status(404).json({ message: 'Recipient not found' });
       }
-      if (userRole === 'student' && recipient.role === 'admin') {
+      if (userRole === 'student' && (recipient.role === 'admin' || recipient.role === 'superadmin')) {
         return res.status(403).json({ message: 'Students are not allowed to message admins' });
       }
     }
@@ -87,7 +87,7 @@ export const sendMessage = async (req: Request, res: Response) => {
       const recipientIds = participants.filter((id) => id !== userId);
       for (const pid of recipientIds) {
         const recipient = await UserModel.findById(pid);
-        if (recipient?.role === 'admin') {
+        if (recipient?.role === 'admin' || recipient?.role === 'superadmin') {
           return res.status(403).json({ message: 'Students are not allowed to message admins' });
         }
       }

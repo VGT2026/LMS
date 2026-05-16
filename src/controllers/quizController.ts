@@ -37,7 +37,7 @@ export const listQuizzes = async (req: Request, res: Response): Promise<void> =>
           return da - db;
         });
       }
-    } else if (user.role === 'admin') {
+    } else if (user.role === 'admin' || user.role === 'superadmin') {
       const { courseId } = req.query;
       if (courseId) {
         quizzes = await QuizModel.findByCourse(Number(courseId));
@@ -88,7 +88,7 @@ export const getQuizById = async (req: Request, res: Response): Promise<void> =>
 export const createQuiz = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }
@@ -132,7 +132,7 @@ export const createQuiz = async (req: Request, res: Response): Promise<void> => 
 export const updateQuiz = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }
@@ -197,7 +197,7 @@ export const updateQuiz = async (req: Request, res: Response): Promise<void> => 
 export const deleteQuiz = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user;
-    if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    if (!user || (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin')) {
       sendError(res, 'Instructor or admin access required', 403);
       return;
     }

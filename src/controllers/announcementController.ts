@@ -25,7 +25,7 @@ export const createAnnouncement = async (req: Request, res: Response): Promise<v
       sendError(res, 'Authentication required', 401);
       return;
     }
-    if (user.role !== 'instructor' && user.role !== 'admin') {
+    if (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin') {
       sendError(res, 'Instructor access required', 403);
       return;
     }
@@ -64,7 +64,7 @@ export const deleteAnnouncement = async (req: Request, res: Response): Promise<v
       sendError(res, 'Authentication required', 401);
       return;
     }
-    if (user.role !== 'instructor' && user.role !== 'admin') {
+    if (user.role !== 'instructor' && user.role !== 'admin' && user.role !== 'superadmin') {
       sendError(res, 'Instructor access required', 403);
       return;
     }
