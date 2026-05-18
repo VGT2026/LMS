@@ -131,13 +131,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       role: activeUser.role,
     });
 
-    // Return user info (excluding password)
-    const { password: _, ...userWithoutPassword } = activeUser;
-
-    sendSuccess(res, {
-      user: userWithoutPassword,
-      token,
-    }, 'Login successful');
+    sendSuccess(
+      res,
+      {
+        token,
+        user: {
+          id: Number(activeUser.id),
+          name: activeUser.name,
+          email: activeUser.email,
+          role: activeUser.role,
+          is_active: userIsActive(activeUser.is_active),
+        },
+      },
+      'Login successful'
+    );
   } catch (error) {
     console.error('Login error:', error);
     sendError(res, 'Internal server error', 500);

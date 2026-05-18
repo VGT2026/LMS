@@ -1,142 +1,114 @@
 # Superadmin API (frontend reference)
 
-Base path: `/api/auth`  
-All responses use `{ success, data?, message?, error? }` (same as `authAPI.createInstructor`).
+Base: `https://lms-production-7308.up.railway.app/api/auth`  
+Envelope: `{ success, data?, message?, error? }`
 
-JWT payload includes `role`: `student` | `instructor` | `admin` | `superadmin`.  
-`GET /api/auth/profile` returns the user object with `role`.
+## Roles
 
-## Authorization rules
+`student` | `instructor` | `admin` | `superadmin`
 
-| Actor | Create admin (`POST /superadmin/admin`) | PATCH role → `admin` | PATCH role → `superadmin` | Admin dashboard (`requireAdmin` routes) |
-|-------|----------------------------------------|------------------------|---------------------------|----------------------------------------|
-| superadmin | Yes | Yes | Yes | Yes |
-| admin | No (403) | No (403) | No (403) | Yes |
-| instructor / student | No | No | No | No |
+Bootstrap defaults (if env unset): **superadmin@lmspro.com** / **SuperAdmin123!**
 
-`POST /api/auth/admin/instructor` — **admin** or **superadmin**.
+---
 
-## Bootstrap superadmin
+## POST `/superadmin/admin`
 
-Set in `.env` (also applied on `npm run db:migrate` and server start):
-
-```env
-# Defaults (if unset): superadmin@lmspro.com / SuperAdmin123!
-SUPERADMIN_EMAIL=superadmin@lmspro.com
-SUPERADMIN_PASSWORD=SuperAdmin123!
-SUPERADMIN_NAME=Platform Superadmin
-```
-
-Account is created on **migrate** (`npm start`) and **server start**. If login fails after an old partial setup, run once on Railway:
-
-`SUPERADMIN_RESET_PASSWORD=true` then redeploy, or locally: `npm run db:ensure-superadmin`
-
-## Endpoints
-
-### POST `/api/auth/superadmin/admin`
-
-**Auth:** Bearer token, role `superadmin`  
-**Rate limit:** 5 requests / 15 min per IP (configurable via `SUPERADMIN_CREATE_ADMIN_MAX`)
+**Auth:** `Authorization: Bearer <superadmin JWT>`
 
 **Body:**
 ```json
 {
   "name": "Jane Admin",
   "email": "jane@example.com",
-  "password": "SecurePass1"
+  "password": "secret12"
 }
 ```
 
-**201 Response:**
+**201:**
 ```json
 {
   "success": true,
   "message": "Admin account created successfully",
   "data": {
-    "id": 42,
-    "name": "Jane Admin",
-    "email": "jane@example.com",
-    "role": "admin",
-    "is_active": true
+    "admin": {
+      "id": 42,
+      "name": "Jane Admin",
+      "email": "jane@example.com",
+      "role": "admin",
+      "is_active": true,
+      "created_at": "2026-05-18T12:00:00.000Z"
+    }
   }
 }
 ```
 
-**Errors:** `409` email exists, `400` validation, `403` not superadmin.
+| Status | When |
+|--------|------|
+| 401 | Missing/invalid token |
+| 403 | Not `superadmin` |
+| 409 | Email exists |
+| 400 | Validation |
+
+Firebase linking is **best-effort**; the DB user is always created for `POST /login`.
 
 ---
 
-### GET `/api/auth/superadmin/admins`
+## GET `/superadmin/admins`
 
 **Query:** `page`, `limit`, `search` (optional)
 
-**200 Response:**
+**200:**
 ```json
 {
   "success": true,
-  "message": "Admins retrieved successfully",
-  "data": [ { "id": 42, "name": "...", "email": "...", "role": "admin", "is_active": true } ],
-  "pagination": { "page": 1, "limit": 10, "total": 3, "totalPages": 1 }
+  "data": [
+    {
+      "id": 42,
+      "name": "Jane Admin",
+      "email": "jane@example.com",
+      "role": "admin",
+      "is_active": true,
+      "created_at": "2026-05-18T12:00:00.000Z"
+    }
+  ]
 }
 ```
 
-Only users with `role=admin` (superadmin accounts are not listed).
-
 ---
 
-### POST `/api/auth/superadmin/admins/:userId/sync-firebase`
+## POST `/login`
 
-Use when an admin was created but **cannot log in via Firebase** (frontend email/password).
+**Body:** `{ "email", "password" }`
 
-**Body:** `{ "password": "SamePassword1" }` — must match what the admin will use to sign in.
-
-**200:** `{ success: true, data: { ..., firebaseLinked: true } }`
-
----
-
-### PATCH `/api/auth/superadmin/admins/:userId/deactivate`
-
-Toggles `is_active` for an **admin** user only. Cannot target self.
-
-**200 Response:** updated user (no password).
-
----
-
-### GET `/api/auth/superadmin/stats`
-
-**200 Response:**
+**200:**
 ```json
 {
   "success": true,
   "data": {
-    "totalUsers": 120,
-    "activeUsers": 115,
-    "totalAdmins": 3,
-    "totalSuperadmins": 1,
-    "totalInstructors": 10,
-    "totalStudents": 106,
-    "totalCourses": 25,
-    "activeCourses": 22,
-    "usersByRole": { "student": 106, "instructor": 10, "admin": 3, "superadmin": 1 }
+    "token": "<jwt>",
+    "user": {
+      "id": 42,
+      "name": "Jane Admin",
+      "email": "jane@example.com",
+      "role": "admin",
+      "is_active": true
+    }
   }
 }
 ```
 
 ---
 
-### Existing admin routes (hardened)
+## Optional
 
-- `PATCH /api/auth/admin/users/:id/role` — body `{ "role": "..." }`. Setting `admin` or `superadmin` requires **superadmin** token (403 for plain admin).
-- `POST /api/auth/admin/instructor` — **admin** or **superadmin**.
+- `GET /superadmin/stats` — platform metrics
+- `POST /superadmin/admins/:userId/sync-firebase` — repair Firebase for an existing admin
+- `PATCH /superadmin/admins/:userId/deactivate` — toggle `is_active`
 
-## Login
+---
 
-`POST /api/auth/login` — unchanged; token includes `role`. New admins log in the same way and use `/admin` dashboard APIs.
-
-## Tests
+## Acceptance tests
 
 ```bash
-npm test
+API_BASE_URL=https://lms-production-7308.up.railway.app npm run test:superadmin-acceptance
 ```
-
-Runs `src/scripts/runRolePolicyTests.ts` (policy unit tests for 403/201 rules).

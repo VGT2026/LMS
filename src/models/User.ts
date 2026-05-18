@@ -2,6 +2,7 @@ import { User as UserType, UserRole } from '../types';
 import DatabaseHelper from '../utils/database';
 import { hashPassword } from '../utils/auth';
 import { isValidUserRole } from '../utils/rolePolicy';
+import { tableHasColumn } from '../utils/mysqlSchema';
 import crypto from 'crypto';
 
 export class UserModel {
@@ -47,13 +48,16 @@ export class UserModel {
       hashedPassword = await hashPassword(userData.password);
     }
 
-    const query = `
-      INSERT INTO users (name, email, password, role, avatar, is_active,
-                        preferred_categories, completed_course_ids, target_job_role_id, firebase_uid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+    const hasFirebaseUid = await tableHasColumn('users', 'firebase_uid');
+    const query = hasFirebaseUid
+      ? `INSERT INTO users (name, email, password, role, avatar, is_active,
+          preferred_categories, completed_course_ids, target_job_role_id, firebase_uid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      : `INSERT INTO users (name, email, password, role, avatar, is_active,
+          preferred_categories, completed_course_ids, target_job_role_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-    const result = await DatabaseHelper.insert(query, [
+    const baseParams = [
       userData.name,
       userData.email,
       hashedPassword,
@@ -63,8 +67,12 @@ export class UserModel {
       JSON.stringify(userData.preferred_categories || []),
       JSON.stringify(userData.completed_course_ids || []),
       userData.target_job_role_id || null,
-      userData.firebase_uid || null,
-    ]);
+    ];
+
+    const result = await DatabaseHelper.insert(
+      query,
+      hasFirebaseUid ? [...baseParams, userData.firebase_uid || null] : baseParams
+    );
 
     // Return the created user
     const user = await this.findById(result.insertId!);

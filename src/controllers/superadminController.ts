@@ -1,19 +1,26 @@
 import { Request, Response } from 'express';
-import { sendSuccess, sendError, sendPagination } from '../utils/response';
+import { sendSuccess, sendError } from '../utils/response';
 import { UserModel } from '../models/User';
 import { CourseModel } from '../models/Course';
 import { AuditLogModel } from '../models/AuditLog';
-import { validatePasswordStrength } from '../utils/passwordPolicy';
+import { validateAdminPassword } from '../utils/passwordPolicy';
 import { parsePageLimit, queryScalar } from '../utils/queryParse';
+import { formatAdminPublic } from '../utils/adminUserFormat';
 
-function adminPublic(user: { id?: number; name: string; email: string; role: string; is_active: boolean }) {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    is_active: user.is_active,
-  };
+async function tryLinkFirebase(
+  email: string,
+  password: string,
+  displayName: string
+): Promise<string | undefined> {
+  try {
+    const { ensureFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
+    if (!isFirebaseConfigured()) return undefined;
+    const fb = await ensureFirebaseUser(email, password, displayName);
+    return fb?.uid;
+  } catch (err) {
+    console.warn('[Superadmin] Firebase link skipped (admin still created in DB):', (err as Error)?.message ?? err);
+    return undefined;
+  }
 }
 
 /** POST /api/auth/superadmin/admin */
@@ -40,7 +47,7 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const pwdError = validatePasswordStrength(String(password));
+    const pwdError = validateAdminPassword(String(password));
     if (pwdError) {
       sendError(res, pwdError, 400);
       return;
@@ -51,59 +58,53 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    let firebaseUid: string | undefined;
-    const { ensureFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
-    if (isFirebaseConfigured()) {
-      try {
-        const fb = await ensureFirebaseUser(emailNorm, String(password), nameTrim);
-        if (fb) firebaseUid = fb.uid;
-      } catch (err: any) {
-        const code = err?.code || err?.errorInfo?.code || '';
-        if (code === 'auth/email-already-exists') {
-          sendError(res, 'User with this email already exists in Firebase', 409);
-          return;
-        }
-        console.error('Firebase create admin error:', err);
-        sendError(res, 'Failed to create Firebase login for admin. Try again or check Firebase config.', 500);
+    const firebaseUid = await tryLinkFirebase(emailNorm, String(password), nameTrim);
+
+    let created;
+    try {
+      created = await UserModel.create({
+        name: nameTrim,
+        email: emailNorm,
+        password: String(password),
+        role: 'admin',
+        is_active: true,
+        firebase_uid: firebaseUid,
+      });
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY') {
+        sendError(res, 'User with this email already exists', 409);
         return;
       }
+      console.error('createAdmin DB insert error:', err);
+      throw err;
     }
-
-    const created = await UserModel.create({
-      name: nameTrim,
-      email: emailNorm,
-      password: String(password),
-      role: 'admin',
-      is_active: true,
-      firebase_uid: firebaseUid,
-    });
 
     await AuditLogModel.record({
       actor_id: actor.userId,
       action: 'superadmin.admin.create',
       target_user_id: created.id,
-      metadata: { email: emailNorm },
+      metadata: { email: emailNorm, firebaseLinked: Boolean(firebaseUid) },
     });
 
     sendSuccess(
       res,
-      {
-        ...adminPublic(created),
-        firebaseLinked: Boolean(firebaseUid),
-        loginHint: firebaseUid
-          ? 'Sign in with email and password (Firebase or /api/auth/login).'
-          : 'Sign in with POST /api/auth/login using this email and password.',
-      },
+      { admin: formatAdminPublic(created) },
       'Admin account created successfully',
       201
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error('createAdmin error:', err);
-    sendError(res, 'Internal server error', 500);
+    const detail = err?.message || String(err);
+    sendError(
+      res,
+      process.env.NODE_ENV === 'development' ? `Internal server error: ${detail}` : 'Internal server error',
+      500,
+      process.env.NODE_ENV === 'development' ? detail : undefined
+    );
   }
 };
 
-/** POST /api/auth/superadmin/admins/:userId/sync-firebase — link Firebase login for an existing admin */
+/** POST /api/auth/superadmin/admins/:userId/sync-firebase */
 export const syncAdminFirebase = async (req: Request, res: Response): Promise<void> => {
   try {
     const idParam = req.params.userId ?? req.params.id;
@@ -115,8 +116,9 @@ export const syncAdminFirebase = async (req: Request, res: Response): Promise<vo
       sendError(res, 'Invalid user ID', 400);
       return;
     }
-    if (!password || String(password).length < 8) {
-      sendError(res, 'password is required (min 8 characters) to sync Firebase login', 400);
+    const pwdError = validateAdminPassword(String(password || ''));
+    if (pwdError) {
+      sendError(res, pwdError, 400);
       return;
     }
 
@@ -153,8 +155,8 @@ export const syncAdminFirebase = async (req: Request, res: Response): Promise<vo
       target_user_id: userId,
     });
 
-    const safe = updated ? adminPublic(updated) : adminPublic(target);
-    sendSuccess(res, { ...safe, firebaseLinked: true }, 'Admin Firebase login synced');
+    const row = updated || target;
+    sendSuccess(res, { admin: formatAdminPublic(row), firebaseLinked: true }, 'Admin Firebase login synced');
   } catch (err) {
     console.error('syncAdminFirebase error:', err);
     sendError(res, 'Internal server error', 500);
@@ -174,19 +176,20 @@ export const listAdmins = async (req: Request, res: Response): Promise<void> => 
       search: search || undefined,
     });
 
-    const admins = result.users.map((u) => {
-      const { password: _, ...rest } = u;
-      return rest;
-    });
+    const admins = result.users.map((u) => formatAdminPublic(u));
 
-    sendPagination(res, admins, result.page, result.limit, result.total, 'Admins retrieved successfully');
-  } catch (err) {
+    sendSuccess(res, admins, 'Admins retrieved successfully');
+  } catch (err: any) {
     console.error('listAdmins error:', err);
-    sendError(res, 'Internal server error', 500);
+    sendError(
+      res,
+      process.env.NODE_ENV === 'development' ? `Internal server error: ${err.message}` : 'Internal server error',
+      500
+    );
   }
 };
 
-/** PATCH /api/auth/superadmin/admins/:userId/deactivate — toggles is_active for admin users only */
+/** PATCH /api/auth/superadmin/admins/:userId/deactivate */
 export const toggleAdminDeactivate = async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = req.user!;
@@ -227,8 +230,7 @@ export const toggleAdminDeactivate = async (req: Request, res: Response): Promis
       target_user_id: userId,
     });
 
-    const { password: _, ...safe } = updated;
-    sendSuccess(res, safe, 'Admin status updated successfully');
+    sendSuccess(res, { admin: formatAdminPublic(updated) }, 'Admin status updated successfully');
   } catch (err) {
     console.error('toggleAdminDeactivate error:', err);
     sendError(res, 'Internal server error', 500);

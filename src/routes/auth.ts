@@ -67,15 +67,9 @@ const registerValidation = [
 ];
 
 const createAdminValidation = [
-  body('name').trim().isLength({ min: 2, max: 50 }),
-  body('email').isEmail().normalizeEmail(),
-  body('password')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
-    .matches(/[a-zA-Z]/)
-    .withMessage('Password must contain a letter')
-    .matches(/[0-9]/)
-    .withMessage('Password must contain a number'),
+  body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2–50 characters'),
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
 ];
 
 // Public routes
@@ -151,12 +145,7 @@ router.post(
   '/superadmin/admins/:userId/sync-firebase',
   authenticate,
   requireSuperadmin,
-  [
-    body('password')
-      .isLength({ min: 8 })
-      .matches(/[a-zA-Z]/)
-      .matches(/[0-9]/),
-  ],
+  [body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')],
   handleValidation,
   syncAdminFirebase
 );
