@@ -267,6 +267,22 @@ export class CourseModel {
     return result.courses;
   }
 
+  /** Lightweight counts for admin dashboard (tolerates missing optional columns). */
+  static async getDashboardCounts(): Promise<{ total: number; active: number }> {
+    const total = await DatabaseHelper.count('courses');
+    const hasIsActive = await tableHasColumn('courses', 'is_active');
+    if (!hasIsActive) {
+      return { total, active: total };
+    }
+    try {
+      const active = await DatabaseHelper.count('courses', 'is_active = TRUE');
+      return { total, active };
+    } catch (e) {
+      console.warn('[CourseModel] is_active count failed, using total:', (e as Error)?.message);
+      return { total, active: total };
+    }
+  }
+
   // Get course statistics
   static async getStats(): Promise<{
     total: number;
@@ -274,31 +290,46 @@ export class CourseModel {
     byCategory: Record<string, number>;
     byLevel: Record<string, number>;
   }> {
-    const total = await DatabaseHelper.count('courses');
+    const { total, active } = await this.getDashboardCounts();
 
-    const active = await DatabaseHelper.count('courses', 'is_active = TRUE');
-
-    // Category stats
-    const categoryQuery = 'SELECT category, COUNT(*) as count FROM courses GROUP BY category';
-    const categoryResults = await DatabaseHelper.findMany<{ category: string; count: number }>(categoryQuery);
     const byCategory: Record<string, number> = {};
-    categoryResults.forEach(row => {
-      byCategory[row.category] = Number(row.count ?? 0);
-    });
-
-    // Level stats
-    const levelQuery = 'SELECT level, COUNT(*) as count FROM courses GROUP BY level';
-    const levelResults = await DatabaseHelper.findMany<{ level: string; count: number }>(levelQuery);
     const byLevel: Record<string, number> = {};
-    levelResults.forEach(row => {
-      byLevel[row.level] = Number(row.count ?? 0);
-    });
+
+    if (await tableHasColumn('courses', 'category')) {
+      try {
+        const categoryResults = await DatabaseHelper.findMany<{ category: string; count: number | bigint }>(
+          'SELECT category, COUNT(*) AS count FROM courses GROUP BY category'
+        );
+        categoryResults.forEach((row) => {
+          if (row.category != null) {
+            byCategory[row.category] = Number(row.count ?? 0);
+          }
+        });
+      } catch (e) {
+        console.warn('[CourseModel] category stats skipped:', (e as Error)?.message);
+      }
+    }
+
+    if (await tableHasColumn('courses', 'level')) {
+      try {
+        const levelResults = await DatabaseHelper.findMany<{ level: string; count: number | bigint }>(
+          'SELECT level, COUNT(*) AS count FROM courses GROUP BY level'
+        );
+        levelResults.forEach((row) => {
+          if (row.level != null) {
+            byLevel[row.level] = Number(row.count ?? 0);
+          }
+        });
+      } catch (e) {
+        console.warn('[CourseModel] level stats skipped:', (e as Error)?.message);
+      }
+    }
 
     return {
       total,
       active,
       byCategory,
-      byLevel
+      byLevel,
     };
   }
 

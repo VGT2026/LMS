@@ -79,9 +79,9 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
     }
 
     // Use aggregates only — avoids querying optional columns like approval_status required by findAll().
-    const [userStats, courseStats] = await Promise.all([
+    const [userStats, courseCounts] = await Promise.all([
       UserModel.getStats(),
-      CourseModel.getStats(),
+      CourseModel.getDashboardCounts(),
     ]);
 
     sendSuccess(
@@ -89,13 +89,19 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
       {
         totalUsers: Number(userStats.total),
         activeUsers: Number(userStats.active),
-        totalCourses: Number(courseStats.total),
-        activeCourses: Number(courseStats.active),
+        totalCourses: Number(courseCounts.total),
+        activeCourses: Number(courseCounts.active),
       },
       'Admin stats retrieved'
     );
   } catch (error) {
     console.error('Get admin stats error:', error);
-    sendError(res, 'Internal server error', 500);
+    const detail = error instanceof Error ? error.message : String(error);
+    sendError(
+      res,
+      process.env.NODE_ENV === 'development' ? `Internal server error: ${detail}` : 'Internal server error',
+      500,
+      process.env.NODE_ENV === 'development' ? detail : undefined
+    );
   }
 };

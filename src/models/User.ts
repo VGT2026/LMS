@@ -296,13 +296,23 @@ export class UserModel {
       superadmin: 0,
     };
 
-    // GROUP BY avoids WHERE role='superadmin' on ENUMs that have not been migrated yet.
-    const rows = await DatabaseHelper.findMany<{ role: string; count: number | bigint }>(
-      `SELECT role, COUNT(*) AS count FROM users WHERE is_active = TRUE GROUP BY role`
-    );
-    for (const row of rows) {
-      if (isValidUserRole(row.role)) {
-        stats[row.role] = Number(row.count ?? 0);
+    try {
+      const rows = await DatabaseHelper.findMany<{ role: string; count: number | bigint }>(
+        `SELECT role, COUNT(*) AS count FROM users WHERE is_active = TRUE GROUP BY role`
+      );
+      for (const row of rows) {
+        if (isValidUserRole(row.role)) {
+          stats[row.role] = Number(row.count ?? 0);
+        }
+      }
+    } catch (e) {
+      console.warn('[UserModel] role GROUP BY stats failed:', (e as Error)?.message);
+      for (const role of ['student', 'instructor', 'admin'] as UserRole[]) {
+        try {
+          stats[role] = await DatabaseHelper.count('users', 'role = ? AND is_active = TRUE', [role]);
+        } catch {
+          stats[role] = 0;
+        }
       }
     }
 

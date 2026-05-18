@@ -150,7 +150,10 @@ export const toggleAdminDeactivate = async (req: Request, res: Response): Promis
 /** GET /api/auth/superadmin/stats */
 export const getSuperadminStats = async (req: Request, res: Response): Promise<void> => {
   try {
-    const [userStats, courseStats] = await Promise.all([UserModel.getStats(), CourseModel.getStats()]);
+    const [userStats, courseCounts] = await Promise.all([
+      UserModel.getStats(),
+      CourseModel.getDashboardCounts(),
+    ]);
 
     sendSuccess(
       res,
@@ -161,8 +164,8 @@ export const getSuperadminStats = async (req: Request, res: Response): Promise<v
         totalSuperadmins: Number(userStats.byRole.superadmin),
         totalInstructors: Number(userStats.byRole.instructor),
         totalStudents: Number(userStats.byRole.student),
-        totalCourses: Number(courseStats.total),
-        activeCourses: Number(courseStats.active),
+        totalCourses: Number(courseCounts.total),
+        activeCourses: Number(courseCounts.active),
         usersByRole: userStats.byRole,
       },
       'Superadmin stats retrieved'

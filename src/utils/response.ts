@@ -1,6 +1,13 @@
 import { Response } from 'express';
 import { ApiResponse } from '../types';
 
+/** Coerce BigInt and other non-JSON values before res.json (mysql2 returns BIGINT). */
+export function jsonSafe<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (_key, v) => (typeof v === 'bigint' ? Number(v) : v))
+  ) as T;
+}
+
 export const sendSuccess = <T>(
   res: Response,
   data: T,
@@ -12,7 +19,7 @@ export const sendSuccess = <T>(
     data,
     message,
   };
-  res.status(statusCode).json(response);
+  res.status(statusCode).json(jsonSafe(response));
 };
 
 export const sendError = (
@@ -52,5 +59,5 @@ export const sendPagination = <T>(
       totalPages,
     },
   };
-  res.status(200).json(response);
+  res.status(200).json(jsonSafe(response));
 };

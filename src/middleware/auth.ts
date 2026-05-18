@@ -38,7 +38,11 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    req.user = decoded;
+    req.user = {
+      userId: user.id!,
+      email: user.email,
+      role: user.role,
+    };
     next();
   } catch (error) {
     sendError(res, 'Invalid or expired token', 401);
@@ -57,7 +61,11 @@ export const optionalAuthenticate = async (req: Request, res: Response, next: Ne
     const decoded = verifyToken(token);
     const user = await UserModel.findById(decoded.userId);
     if (user && user.is_active) {
-      req.user = decoded;
+      req.user = {
+        userId: user.id!,
+        email: user.email,
+        role: user.role,
+      };
     }
     next();
   } catch {
