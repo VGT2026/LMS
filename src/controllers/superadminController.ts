@@ -8,6 +8,8 @@ import { parsePageLimit, queryScalar } from '../utils/queryParse';
 import { formatAdminPublic } from '../utils/adminUserFormat';
 import { formatPlatformUser } from '../utils/platformUserFormat';
 import { UserRole } from '../types';
+import { TenantModel } from '../models/Tenant';
+import { parseOptionalTenantId } from '../utils/tenantScope';
 
 async function tryLinkFirebase(
   email: string,
@@ -29,7 +31,7 @@ async function tryLinkFirebase(
 export const createAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = req.user!;
-    const { name, email, password } = req.body || {};
+    const { name, email, password, tenant_name, tenant_id: bodyTenantId } = req.body || {};
 
     if (!name || !email || !password) {
       sendError(res, 'Name, email, and password are required', 400);
@@ -60,6 +62,23 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    let tenantId: number;
+    const parsedTenantId = parseOptionalTenantId(bodyTenantId);
+    if (parsedTenantId != null) {
+      const existingTenant = await TenantModel.findById(parsedTenantId);
+      if (!existingTenant) {
+        sendError(res, 'Tenant not found', 404);
+        return;
+      }
+      tenantId = existingTenant.id;
+    } else if (tenant_name && String(tenant_name).trim()) {
+      const createdTenant = await TenantModel.createUniqueFromName(String(tenant_name));
+      tenantId = createdTenant.id;
+    } else {
+      const createdTenant = await TenantModel.createUniqueFromName(nameTrim);
+      tenantId = createdTenant.id;
+    }
+
     const firebaseUid = await tryLinkFirebase(emailNorm, String(password), nameTrim);
 
     let created;
@@ -71,6 +90,7 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
         role: 'admin',
         is_active: true,
         firebase_uid: firebaseUid,
+        tenant_id: tenantId,
       });
     } catch (err: any) {
       if (err?.code === 'ER_DUP_ENTRY') {
@@ -85,12 +105,19 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       actor_id: actor.userId,
       action: 'superadmin.admin.create',
       target_user_id: created.id,
-      metadata: { email: emailNorm, firebaseLinked: Boolean(firebaseUid) },
+      metadata: { email: emailNorm, firebaseLinked: Boolean(firebaseUid), tenantId },
     });
 
+    const tenant = await TenantModel.findById(tenantId);
     sendSuccess(
       res,
-      { admin: formatAdminPublic(created) },
+      {
+        admin: formatAdminPublic({
+          ...created,
+          tenant_id: tenantId,
+          tenant_name: tenant?.name,
+        }),
+      },
       'Admin account created successfully',
       201
     );
@@ -175,11 +202,14 @@ async function listUsersByRole(
     const { page, limit } = parsePageLimit(req.query.page, req.query.limit);
     const search = queryScalar(req.query.search)?.trim();
 
+    const tenant_id = parseOptionalTenantId(req.query.tenant_id);
+
     const result = await UserModel.findAll({
       page,
       limit,
       role,
       search: search || undefined,
+      ...(tenant_id != null ? { tenant_id } : {}),
     });
 
     const rows = result.users.map((u) => formatPlatformUser(u));
@@ -278,13 +308,95 @@ export const toggleAdminDeactivate = async (req: Request, res: Response): Promis
   }
 };
 
+/** GET /api/auth/superadmin/tenants */
+export const listTenants = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const activeOnly = req.query.active_only === 'true';
+    const tenants = await TenantModel.findAll(activeOnly);
+    sendSuccess(res, tenants, 'Tenants retrieved successfully');
+  } catch (err) {
+    console.error('listTenants error:', err);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
+/** PATCH /api/auth/superadmin/users/:userId/tenant */
+export const moveUserTenant = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = req.user!;
+    const idParam = req.params.userId ?? req.params.id;
+    const userId = parseInt(String(Array.isArray(idParam) ? idParam[0] : idParam), 10);
+    const tenantId = parseOptionalTenantId(req.body?.tenant_id);
+
+    if (isNaN(userId)) {
+      sendError(res, 'Invalid user ID', 400);
+      return;
+    }
+    if (tenantId == null) {
+      sendError(res, 'tenant_id is required', 400);
+      return;
+    }
+
+    const tenant = await TenantModel.findById(tenantId);
+    if (!tenant) {
+      sendError(res, 'Tenant not found', 404);
+      return;
+    }
+
+    const target = await UserModel.findById(userId);
+    if (!target) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+    if (target.role === 'superadmin') {
+      sendError(res, 'Cannot assign tenant to superadmin', 400);
+      return;
+    }
+
+    const updated = await UserModel.update(userId, { tenant_id: tenantId });
+    await AuditLogModel.record({
+      actor_id: actor.userId,
+      action: 'superadmin.user.tenant_move',
+      target_user_id: userId,
+      metadata: { tenantId },
+    });
+
+    sendSuccess(res, { user: updated, tenant }, 'User moved to tenant');
+  } catch (err) {
+    console.error('moveUserTenant error:', err);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
 /** GET /api/auth/superadmin/stats */
 export const getSuperadminStats = async (req: Request, res: Response): Promise<void> => {
   try {
-    const [userStats, courseCounts] = await Promise.all([
+    const [userStats, courseCounts, tenants] = await Promise.all([
       UserModel.getStats(),
       CourseModel.getDashboardCounts(),
+      TenantModel.findAll(true),
     ]);
+
+    const byTenant = await Promise.all(
+      tenants.map(async (t) => {
+        const [users, courses] = await Promise.all([
+          UserModel.getStats(t.id),
+          CourseModel.getDashboardCounts(t.id),
+        ]);
+        return {
+          tenantId: t.id,
+          name: t.name,
+          slug: t.slug,
+          totalUsers: Number(users.total),
+          activeUsers: Number(users.active),
+          totalStudents: Number(users.byRole.student),
+          totalInstructors: Number(users.byRole.instructor),
+          totalAdmins: Number(users.byRole.admin),
+          totalCourses: Number(courses.total),
+          activeCourses: Number(courses.active),
+        };
+      })
+    );
 
     sendSuccess(
       res,
@@ -298,6 +410,7 @@ export const getSuperadminStats = async (req: Request, res: Response): Promise<v
         totalCourses: Number(courseCounts.total),
         activeCourses: Number(courseCounts.active),
         usersByRole: userStats.byRole,
+        byTenant,
       },
       'Superadmin stats retrieved'
     );

@@ -426,6 +426,104 @@ const runMigrations = async () => {
       }
     }
 
+    // --- Multi-tenant: tenants + tenant_id on users/courses ---
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS tenants (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          name VARCHAR(255) NOT NULL,
+          slug VARCHAR(100) NULL UNIQUE,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_tenant_slug (slug),
+          INDEX idx_tenant_active (is_active)
+        )
+      `);
+      console.log('✅ tenants table ready');
+    } catch (err: any) {
+      if (err.code === 'ER_TABLE_EXISTS_ERROR') console.log('⏭️ tenants already exists');
+      else throw err;
+    }
+
+    const [tenantRows] = await connection.query<mysql.RowDataPacket[]>(
+      'SELECT id FROM tenants WHERE slug = ? LIMIT 1',
+      ['platform-default']
+    );
+    let defaultTenantId: number;
+    if (tenantRows.length === 0) {
+      const [ins] = await connection.query<mysql.ResultSetHeader>(
+        `INSERT INTO tenants (name, slug, is_active) VALUES ('Platform Default', 'platform-default', TRUE)`
+      );
+      defaultTenantId = ins.insertId;
+      console.log('✅ Created default tenant id=', defaultTenantId);
+    } else {
+      defaultTenantId = tenantRows[0].id;
+      console.log('⏭️ Default tenant exists id=', defaultTenantId);
+    }
+
+    try {
+      await connection.query(
+        'ALTER TABLE users ADD COLUMN tenant_id INT NULL, ADD INDEX idx_users_tenant_role (tenant_id, role)'
+      );
+      console.log('✅ Added users.tenant_id');
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_FIELDNAME') console.log('⏭️ users.tenant_id already exists');
+      else throw err;
+    }
+
+    try {
+      await connection.query(
+        'ALTER TABLE users ADD CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL'
+      );
+      console.log('✅ users.tenant_id FK');
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_KEYNAME' || err.code === 'ER_CANT_CREATE_TABLE') {
+        console.log('⏭️ users tenant FK may already exist');
+      } else if (err.code !== 'ER_DUP_FIELDNAME') {
+        console.warn('⚠️ users tenant FK:', err.message);
+      }
+    }
+
+    await connection.query(
+      'UPDATE users SET tenant_id = ? WHERE tenant_id IS NULL AND role != ?',
+      [defaultTenantId, 'superadmin']
+    );
+    await connection.query(
+      "UPDATE users SET tenant_id = NULL WHERE role = 'superadmin'"
+    );
+    console.log('✅ Backfilled users.tenant_id');
+
+    try {
+      await connection.query(
+        'ALTER TABLE courses ADD COLUMN tenant_id INT NULL, ADD INDEX idx_courses_tenant (tenant_id)'
+      );
+      console.log('✅ Added courses.tenant_id');
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_FIELDNAME') console.log('⏭️ courses.tenant_id already exists');
+      else throw err;
+    }
+
+    try {
+      await connection.query(
+        'ALTER TABLE courses ADD CONSTRAINT fk_courses_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT'
+      );
+      console.log('✅ courses.tenant_id FK');
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_KEYNAME' || err.code === 'ER_CANT_CREATE_TABLE') {
+        console.log('⏭️ courses tenant FK may already exist');
+      }
+    }
+
+    await connection.query(
+      `UPDATE courses c
+       LEFT JOIN users u ON u.id = c.instructor_id
+       SET c.tenant_id = COALESCE(u.tenant_id, ?)
+       WHERE c.tenant_id IS NULL`,
+      [defaultTenantId]
+    );
+    console.log('✅ Backfilled courses.tenant_id');
+
     console.log('🎯 Migrations complete');
   } catch (error) {
     console.error('❌ Migration failed:', error);

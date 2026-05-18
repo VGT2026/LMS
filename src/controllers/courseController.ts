@@ -5,6 +5,53 @@ import { UserModel } from '../models/User';
 import { EnrollmentModel } from '../models/Enrollment';
 import { Course } from '../types';
 import { parsePageLimit } from '../utils/queryParse';
+import {
+  assertCourseInTenant,
+  assertUserInTenant,
+  getJwtTenantId,
+  isSuperadmin,
+  parseOptionalTenantId,
+  resolveTenantFilter,
+} from '../utils/tenantScope';
+
+function denyCrossTenantCourse(
+  req: Request,
+  res: Response,
+  course: { tenant_id?: number | null }
+): boolean {
+  const user = req.user;
+  if (!user || isSuperadmin(user.role)) return false;
+  if (!assertCourseInTenant(user, course)) {
+    sendError(res, 'Course not found', 404);
+    return true;
+  }
+  return false;
+}
+
+function applyCourseListTenantScope(
+  req: Request,
+  options: Parameters<typeof CourseModel.findAll>[0]
+): Parameters<typeof CourseModel.findAll>[0] {
+  const user = req.user;
+  if (!user) return options;
+
+  const tenantId = resolveTenantFilter(user, parseOptionalTenantId(req.query.tenant_id));
+  if (tenantId != null) {
+    options = { ...options, tenant_id: tenantId };
+  }
+
+  if (user.role === 'instructor') {
+    options = { ...options, instructor_id: user.userId };
+  } else if (user.role === 'student') {
+    options = { ...options, enrolled_user_id: user.userId };
+    const jwtTenant = getJwtTenantId(user);
+    if (jwtTenant != null) {
+      options = { ...options, tenant_id: jwtTenant };
+    }
+  }
+
+  return options;
+}
 
 export const getAllCourses = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -44,7 +91,11 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
       options.search = searchRaw.trim();
     }
 
-    const result = await CourseModel.findAll(options as Parameters<typeof CourseModel.findAll>[0]);
+    const scoped = applyCourseListTenantScope(
+      req,
+      options as Parameters<typeof CourseModel.findAll>[0]
+    );
+    const result = await CourseModel.findAll(scoped);
 
     sendPagination(res, result.courses, result.page, result.limit, result.total, 'Courses retrieved successfully');
   } catch (error) {
@@ -58,7 +109,12 @@ export const getPendingCourses = async (req: Request, res: Response): Promise<vo
   try {
     const { page: qPage, limit: qLimit } = req.query;
     const { page, limit } = parsePageLimit(qPage, qLimit);
-    const result = await CourseModel.findAll({ page, limit, approval_status: 'pending' });
+    const scoped = applyCourseListTenantScope(req, {
+      page,
+      limit,
+      approval_status: 'pending',
+    });
+    const result = await CourseModel.findAll(scoped);
 
     sendPagination(
       res,
@@ -89,6 +145,8 @@ export const getCourseById = async (req: Request, res: Response): Promise<void> 
       sendError(res, 'Course not found', 404);
       return;
     }
+
+    if (denyCrossTenantCourse(req, res, course)) return;
 
     // Students and unauthenticated users cannot access deactivated courses
     if (!course.is_active) {
@@ -160,7 +218,11 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
         }
         instructor_id = parsed;
       } else if (instructor_name && typeof instructor_name === 'string') {
-        const instructors = await UserModel.findByRole('instructor');
+        const lookupTenant =
+          user.role === 'admin'
+            ? getJwtTenantId(user) ?? undefined
+            : parseOptionalTenantId(req.body.tenant_id) ?? undefined;
+        const instructors = await UserModel.findByRole('instructor', lookupTenant);
         const match = instructors.find(u => u.name === instructor_name);
         if (!match) {
           sendError(res, 'Instructor not found. Please select a valid instructor.', 400);
@@ -186,10 +248,28 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    if (user.role === 'admin' && !assertUserInTenant(user, instructor)) {
+      sendError(res, 'Invalid instructor. Please select a valid instructor.', 400);
+      return;
+    }
+
+    let tenant_id = getJwtTenantId(user);
+    if (user.role === 'superadmin') {
+      tenant_id =
+        instructor.tenant_id != null ? Number(instructor.tenant_id) : tenant_id;
+    } else if (user.role === 'instructor') {
+      tenant_id = instructor.tenant_id != null ? Number(instructor.tenant_id) : tenant_id;
+    }
+    if (tenant_id == null || tenant_id <= 0) {
+      sendError(res, 'Organization (tenant) is required to create a course', 400);
+      return;
+    }
+
     const courseData = {
       title,
       description,
       instructor_id,
+      tenant_id,
       category: trimmedCategory,
       thumbnail,
       duration: duration || '8 weeks',
@@ -229,8 +309,10 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (denyCrossTenantCourse(req, res, existingCourse)) return;
 
     let updates: Partial<Course> = req.body;
+    delete (updates as { tenant_id?: unknown }).tenant_id;
 
     // Instructors can only update their own DRAFT courses (title, description, category, thumbnail) within 15 days
     if (user.role === 'instructor') {
@@ -282,12 +364,22 @@ export const assignInstructor = async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    const course = await CourseModel.findById(courseId);
+    if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (denyCrossTenantCourse(req, res, course)) return;
+
     const { instructor_id }: { instructor_id: number | null } = req.body;
 
-    // Validate instructor exists if provided
     if (instructor_id) {
       const instructor = await UserModel.findById(instructor_id);
       if (!instructor || instructor.role !== 'instructor') {
+        sendError(res, 'Invalid instructor ID', 400);
+        return;
+      }
+      if (adminUser.role === 'admin' && !assertUserInTenant(adminUser, instructor)) {
         sendError(res, 'Invalid instructor ID', 400);
         return;
       }
@@ -332,6 +424,7 @@ export const approveCourse = async (req: Request, res: Response): Promise<void> 
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (denyCrossTenantCourse(req, res, course)) return;
 
     const updatedCourse = await CourseModel.update(courseId, { approval_status: status });
     if (!updatedCourse) {
@@ -367,6 +460,7 @@ export const publishCourse = async (req: Request, res: Response): Promise<void> 
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (denyCrossTenantCourse(req, res, course)) return;
 
     if (user.role === 'instructor') {
       if (course.instructor_id !== user.userId) {
@@ -412,6 +506,13 @@ export const unpublishCourse = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    const course = await CourseModel.findById(courseId);
+    if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (denyCrossTenantCourse(req, res, course)) return;
+
     const updatedCourse = await CourseModel.update(courseId, { is_active: false });
     if (!updatedCourse) {
       sendError(res, 'Failed to unpublish course', 500);
@@ -451,6 +552,7 @@ export const enrollInCourse = async (req: Request, res: Response): Promise<void>
       sendError(res, 'Course is not published. Enrollment is only available for published courses.', 400);
       return;
     }
+    if (denyCrossTenantCourse(req, res, course)) return;
 
     const existing = await EnrollmentModel.findByUserAndCourse(user.userId, courseId);
     if (existing) {
@@ -492,6 +594,7 @@ export const toggleCourseStatus = async (req: Request, res: Response): Promise<v
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (denyCrossTenantCourse(req, res, course)) return;
 
     const newStatus = !course.is_active;
     const updatedCourse = await CourseModel.update(courseId, {
@@ -521,9 +624,12 @@ export const getInstructors = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const instructors = await UserModel.findByRole('instructor');
+    const tenantId = resolveTenantFilter(adminUser, parseOptionalTenantId(req.query.tenant_id));
+    const instructors = await UserModel.findByRole(
+      'instructor',
+      adminUser.role === 'admin' ? getJwtTenantId(adminUser) ?? undefined : tenantId ?? undefined
+    );
 
-    // Return instructors without passwords
     const instructorsWithoutPasswords = instructors.map(instructor => {
       const { password, ...instructorWithoutPassword } = instructor;
       return instructorWithoutPassword;

@@ -1,5 +1,14 @@
 export type UserRole = 'student' | 'instructor' | 'admin' | 'superadmin';
 
+export interface Tenant {
+  id?: number;
+  name: string;
+  slug?: string | null;
+  is_active?: boolean;
+  created_at?: Date | string;
+  updated_at?: Date | string;
+}
+
 export interface User {
   id?: number;
   name: string;
@@ -7,6 +16,8 @@ export interface User {
   password?: string;
   firebase_uid?: string;
   role: UserRole;
+  tenant_id?: number | null;
+  tenant_name?: string;
   avatar?: string;
   is_active: boolean;
   created_at?: Date;
@@ -25,6 +36,7 @@ export interface Course {
   description?: string;
   instructor_id?: number;
   instructor?: string;
+  tenant_id?: number | null;
   category: string;
   thumbnail?: string;
   duration?: string;
@@ -256,6 +268,8 @@ export interface JWTPayload {
   userId: number;
   email: string;
   role: UserRole;
+  /** Set for admin, instructor, student; omitted for superadmin */
+  tenantId?: number;
   iat?: number;
   exp?: number;
 }

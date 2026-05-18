@@ -6,6 +6,8 @@ import { UserRole } from '../types';
 import { hasAdminPanelAccess } from '../utils/rolePolicy';
 import { UserModel } from '../models/User';
 import { userIsActive } from '../utils/userActive';
+import { buildJwtFromUser } from '../utils/authUser';
+import { requiresTenant } from '../utils/tenantScope';
 
 // Extend Express Request interface
 declare global {
@@ -39,11 +41,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    req.user = {
-      userId: user.id!,
-      email: user.email,
-      role: user.role,
-    };
+    if (requiresTenant(user.role) && (user.tenant_id == null || Number(user.tenant_id) <= 0)) {
+      sendError(res, 'Account is not assigned to an organization. Contact platform support.', 403);
+      return;
+    }
+
+    req.user = buildJwtFromUser(user);
     next();
   } catch (error) {
     sendError(res, 'Invalid or expired token', 401);
@@ -62,11 +65,11 @@ export const optionalAuthenticate = async (req: Request, res: Response, next: Ne
     const decoded = verifyToken(token);
     const user = await UserModel.findById(decoded.userId);
     if (user && userIsActive(user.is_active)) {
-      req.user = {
-        userId: user.id!,
-        email: user.email,
-        role: user.role,
-      };
+      if (requiresTenant(user.role) && (user.tenant_id == null || Number(user.tenant_id) <= 0)) {
+        next();
+        return;
+      }
+      req.user = buildJwtFromUser(user);
     }
     next();
   } catch {

@@ -5,6 +5,7 @@ import { UserModel } from '../models/User';
 import { CourseModel } from '../models/Course';
 import DatabaseHelper from '../utils/database';
 import { hasAdminPanelAccess } from '../utils/rolePolicy';
+import { getJwtTenantId } from '../utils/tenantScope';
 
 export const getEnrolledCourses = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -78,10 +79,16 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Use aggregates only — avoids querying optional columns like approval_status required by findAll().
+    const tenantId =
+      user.role === 'superadmin' ? null : getJwtTenantId(user);
+    if (user.role === 'admin' && tenantId == null) {
+      sendError(res, 'Admin account has no organization assigned', 403);
+      return;
+    }
+
     const [userStats, courseCounts] = await Promise.all([
-      UserModel.getStats(),
-      CourseModel.getDashboardCounts(),
+      UserModel.getStats(tenantId),
+      CourseModel.getDashboardCounts(tenantId),
     ]);
 
     sendSuccess(

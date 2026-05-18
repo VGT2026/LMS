@@ -9,6 +9,13 @@ import { parsePageLimit, queryScalar } from '../utils/queryParse';
 import { hasAdminPanelAccess, canAssignRole, isValidUserRole } from '../utils/rolePolicy';
 import { AuditLogModel } from '../models/AuditLog';
 import { userIsActive } from '../utils/userActive';
+import { buildAuthUserResponse, buildJwtFromUser } from '../utils/authUser';
+import {
+  assertUserInTenant,
+  getJwtTenantId,
+  parseOptionalTenantId,
+  resolveTenantFilter,
+} from '../utils/tenantScope';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -28,7 +35,7 @@ export const devAdminLogin = async (req: Request, res: Response): Promise<void> 
       sendError(res, 'Admin not found. Visit /api/auth/reset-admin first', 404);
       return;
     }
-    const token = generateToken({ userId: admin.id!, email: admin.email, role: admin.role });
+    const token = generateToken(buildJwtFromUser(admin));
     const { password: _, ...user } = admin;
     sendSuccess(res, { user, token }, 'Login successful');
   } catch (err) {
@@ -125,26 +132,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Generate token
-    const token = generateToken({
-      userId: activeUser.id!,
-      email: activeUser.email,
-      role: activeUser.role,
-    });
+    const token = generateToken(buildJwtFromUser(activeUser));
+    const userOut = await buildAuthUserResponse(activeUser);
 
-    sendSuccess(
-      res,
-      {
-        token,
-        user: {
-          id: Number(activeUser.id),
-          name: activeUser.name,
-          email: activeUser.email,
-          role: activeUser.role,
-          is_active: userIsActive(activeUser.is_active),
-        },
-      },
-      'Login successful'
-    );
+    sendSuccess(res, { token, user: userOut }, 'Login successful');
   } catch (error) {
     console.error('Login error:', error);
     sendError(res, 'Internal server error', 500);
@@ -192,29 +183,22 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Create student user (only students can register themselves)
+    const defaultTenantId = parseInt(process.env.DEFAULT_TENANT_ID || '1', 10);
+    const tenant_id = Number.isFinite(defaultTenantId) && defaultTenantId > 0 ? defaultTenantId : 1;
+
     const newUser = await UserModel.create({
       name: name.trim(),
       email: email.toLowerCase(),
       password,
       role: 'student',
       is_active: true,
+      tenant_id,
     });
 
-    // Generate token
-    const token = generateToken({
-      userId: newUser.id!,
-      email: newUser.email,
-      role: newUser.role,
-    });
+    const token = generateToken(buildJwtFromUser(newUser));
+    const userOut = await buildAuthUserResponse(newUser);
 
-    // Return user info (excluding password)
-    const { password: _, ...userWithoutPassword } = newUser;
-
-    sendSuccess(res, {
-      user: userWithoutPassword,
-      token,
-    }, 'Student registration successful. Welcome to LMS Pro!', 201);
+    sendSuccess(res, { user: userOut, token }, 'Student registration successful. Welcome to LMS Pro!', 201);
   } catch (error) {
     console.error('Registration error:', error);
     sendError(res, 'Internal server error', 500);
@@ -424,12 +408,26 @@ export const createInstructor = async (req: Request, res: Response): Promise<voi
     // Create instructor user in database
     let newInstructor;
     try {
+      let instructorTenantId = getJwtTenantId(adminUser);
+      if (adminUser.role === 'superadmin') {
+        instructorTenantId =
+          parseOptionalTenantId(req.body.tenant_id) ?? instructorTenantId;
+        if (instructorTenantId == null) {
+          sendError(res, 'tenant_id is required when creating an instructor as superadmin', 400);
+          return;
+        }
+      } else if (instructorTenantId == null) {
+        sendError(res, 'Admin account has no organization assigned', 403);
+        return;
+      }
+
       newInstructor = await UserModel.create({
         name: nameTrim,
         email: emailNorm,
         password,
         role: 'instructor',
         is_active: true,
+        tenant_id: instructorTenantId!,
       });
     } catch (err: any) {
       if (err?.code === 'ER_DUP_ENTRY') {
@@ -490,6 +488,18 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
       options.search = searchStr.trim();
     }
 
+    const tenantFilter = resolveTenantFilter(adminUser, parseOptionalTenantId(req.query.tenant_id));
+    if (adminUser.role === 'admin') {
+      const tid = getJwtTenantId(adminUser);
+      if (tid == null) {
+        sendError(res, 'Admin account has no organization assigned', 403);
+        return;
+      }
+      options.tenant_id = tid;
+    } else if (tenantFilter != null) {
+      options.tenant_id = tenantFilter;
+    }
+
     const result = await UserModel.findAll(options);
 
     // Return users without passwords
@@ -541,6 +551,10 @@ export const toggleUserStatus = async (req: Request, res: Response): Promise<voi
       sendError(res, 'Only superadmin can change status of admin accounts', 403);
       return;
     }
+    if (!assertUserInTenant(adminUser, target)) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
 
     const updatedUser = await UserModel.toggleActiveStatus(userId);
 
@@ -567,7 +581,11 @@ export const getInstructors = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const instructors = await UserModel.findByRole('instructor');
+    const tenantId = resolveTenantFilter(user, parseOptionalTenantId(req.query.tenant_id));
+    const instructors = await UserModel.findByRole(
+      'instructor',
+      tenantId ?? (user.role !== 'superadmin' ? getJwtTenantId(user) ?? undefined : undefined)
+    );
     const instructorsWithoutPasswords = instructors.map(instructor => {
       const { password, ...rest } = instructor;
       return rest;
@@ -791,14 +809,9 @@ export const firebaseAuth = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const token = generateToken({
-      userId: user.id!,
-      email: user.email,
-      role: user.role,
-    });
-
-    const { password: _, ...userWithoutPassword } = user;
-    sendSuccess(res, { user: userWithoutPassword, token }, 'Login successful');
+    const token = generateToken(buildJwtFromUser(user));
+    const userOut = await buildAuthUserResponse(user);
+    sendSuccess(res, { user: userOut, token }, 'Login successful');
   } catch (err: any) {
     console.error('Firebase auth error:', err);
     sendError(res, process.env.NODE_ENV === 'development' ? `Internal server error: ${err.message}` : 'Internal server error', 500);
@@ -843,6 +856,10 @@ export const updateUserRole = async (req: Request, res: Response): Promise<void>
 
     if (target.role === 'superadmin' && actor.role !== 'superadmin') {
       sendError(res, 'Cannot modify superadmin users', 403);
+      return;
+    }
+    if (!assertUserInTenant(actor, target)) {
+      sendError(res, 'User not found', 404);
       return;
     }
 

@@ -11,6 +11,7 @@
     "db:migrate": "ts-node src/scripts/runMigrations.ts",
     "db:ensure-superadmin": "ts-node src/scripts/ensureSuperadmin.ts",
     "test:superadmin-acceptance": "ts-node src/scripts/testSuperadminAcceptance.ts",
+    "test:tenant-isolation": "ts-node src/scripts/testTenantIsolation.ts",
     "db:verify": "ts-node src/scripts/verifyDatabase.ts",
     "db:clear": "ts-node src/scripts/clearDatabase.ts",
     "db:reset-admin": "ts-node src/scripts/resetAdmin.ts",

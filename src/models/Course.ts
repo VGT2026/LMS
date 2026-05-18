@@ -10,7 +10,7 @@ export class CourseModel {
       ? 'c.approval_status'
       : `'approved' AS approval_status`;
     const query = `
-      SELECT c.id, c.title, c.description, c.instructor_id, c.category, c.thumbnail,
+      SELECT c.id, c.title, c.description, c.instructor_id, c.tenant_id, c.category, c.thumbnail,
              c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
              u.name as instructor_name, u.email as instructor_email
       FROM courses c
@@ -81,8 +81,8 @@ export class CourseModel {
   // Create new course
   static async create(courseData: Omit<CourseType, 'id' | 'created_at' | 'updated_at'>): Promise<CourseType> {
     const query = `
-      INSERT INTO courses (title, description, instructor_id, category, thumbnail, duration, price, level, is_active, approval_status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO courses (title, description, instructor_id, tenant_id, category, thumbnail, duration, price, level, is_active, approval_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     // Handle instructor assignment - if instructor name is provided, find the user ID
@@ -98,6 +98,7 @@ export class CourseModel {
       courseData.title,
       courseData.description || null,
       instructorId,
+      courseData.tenant_id ?? null,
       courseData.category,
       courseData.thumbnail || null,
       courseData.duration || '8 weeks',
@@ -160,6 +161,9 @@ export class CourseModel {
     search?: string;
     /** Narrow by workflow state (ignored if approval_status column is missing → empty page) */
     approval_status?: CourseApprovalStatus;
+    tenant_id?: number | null;
+    /** Student: only courses they are enrolled in (within tenant when tenant_id set). */
+    enrolled_user_id?: number;
   } = {}): Promise<{ courses: CourseType[]; total: number; page: number; limit: number }> {
     const {
       page = 1,
@@ -170,6 +174,8 @@ export class CourseModel {
       include_inactive,
       search,
       approval_status: approvalFilter,
+      tenant_id: tenantFilter,
+      enrolled_user_id,
     } = options;
 
     const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
@@ -193,6 +199,18 @@ export class CourseModel {
     if (instructor_id) {
       whereConditions.push('c.instructor_id = ?');
       params.push(instructor_id);
+    }
+
+    if (tenantFilter != null && tenantFilter > 0) {
+      whereConditions.push('c.tenant_id = ?');
+      params.push(tenantFilter);
+    }
+
+    if (enrolled_user_id != null && enrolled_user_id > 0) {
+      whereConditions.push(
+        'EXISTS (SELECT 1 FROM enrollments e WHERE e.course_id = c.id AND e.user_id = ?)'
+      );
+      params.push(enrolled_user_id);
     }
 
     if (approvalFilter !== undefined && hasApprovalStatus) {
@@ -227,7 +245,7 @@ export class CourseModel {
     // Get paginated results (include module_count and students)
     // Must qualify sort column: both `courses` and `users` have `created_at` (MySQL error 1052 otherwise).
     const { query: paginatedQuery, params: paginatedParams } = DatabaseHelper.getPaginationQuery(
-      `SELECT c.id, c.title, c.description, c.instructor_id, c.category, c.thumbnail,
+      `SELECT c.id, c.title, c.description, c.instructor_id, c.tenant_id, c.category, c.thumbnail,
               c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
               u.name as instructor_name, u.email as instructor_email,
               (SELECT COUNT(*) FROM course_modules WHERE course_id = c.id) as module_count,
@@ -268,14 +286,19 @@ export class CourseModel {
   }
 
   /** Lightweight counts for admin dashboard (tolerates missing optional columns). */
-  static async getDashboardCounts(): Promise<{ total: number; active: number }> {
-    const total = await DatabaseHelper.count('courses');
+  static async getDashboardCounts(tenantId?: number | null): Promise<{ total: number; active: number }> {
+    const scoped = tenantId != null && tenantId > 0;
+    const tenantWhere = scoped ? 'tenant_id = ?' : '';
+    const tenantParams = scoped ? [tenantId] : [];
+    const activeWhere = scoped ? 'tenant_id = ? AND is_active = TRUE' : 'is_active = TRUE';
+
+    const total = await DatabaseHelper.count('courses', tenantWhere, tenantParams);
     const hasIsActive = await tableHasColumn('courses', 'is_active');
     if (!hasIsActive) {
       return { total, active: total };
     }
     try {
-      const active = await DatabaseHelper.count('courses', 'is_active = TRUE');
+      const active = await DatabaseHelper.count('courses', activeWhere, tenantParams);
       return { total, active };
     } catch (e) {
       console.warn('[CourseModel] is_active count failed, using total:', (e as Error)?.message);

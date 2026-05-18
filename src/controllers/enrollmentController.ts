@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 import { EnrollmentModel } from '../models/Enrollment';
 import { CourseModel } from '../models/Course';
+import { assertCourseInTenant, isSuperadmin } from '../utils/tenantScope';
 
 export const getEnrollmentsByCourse = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -31,9 +32,12 @@ export const getEnrollmentsByCourse = async (req: Request, res: Response): Promi
       return;
     }
 
-    // Verify instructor owns this course (unless admin)
+    if (!isSuperadmin(user.role) && !assertCourseInTenant(user, course)) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+
     if (user.role === 'instructor' && (course as any).instructor_id !== user.userId) {
-      console.log(`Instructor ${user.userId} does not own course ${courseIdNum}`);
       sendError(res, 'You do not have access to this course', 403);
       return;
     }
@@ -70,6 +74,10 @@ export const getEnrollmentByCourse = async (req: Request, res: Response): Promis
 
     const course = await CourseModel.findById(courseIdNum);
     if (!course || !course.is_active) {
+      sendError(res, 'This course is not available', 403);
+      return;
+    }
+    if (!assertCourseInTenant(user, course)) {
       sendError(res, 'This course is not available', 403);
       return;
     }
@@ -114,6 +122,10 @@ export const updateEnrollmentProgress = async (req: Request, res: Response): Pro
 
     const course = await CourseModel.findById(courseIdNum);
     if (!course || !course.is_active) {
+      sendError(res, 'This course is not available', 403);
+      return;
+    }
+    if (!assertCourseInTenant(user, course)) {
       sendError(res, 'This course is not available', 403);
       return;
     }

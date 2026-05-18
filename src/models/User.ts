@@ -9,7 +9,7 @@ export class UserModel {
   // Find user by ID
   static async findById(id: number): Promise<UserType | null> {
     const query = `
-      SELECT id, name, email, password, role, avatar, is_active, firebase_uid,
+      SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE id = ?
@@ -20,7 +20,7 @@ export class UserModel {
   // Find user by Firebase UID
   static async findByFirebaseUid(firebaseUid: string): Promise<UserType | null> {
     const query = `
-      SELECT id, name, email, password, role, avatar, is_active, firebase_uid,
+      SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE firebase_uid = ?
@@ -32,7 +32,7 @@ export class UserModel {
   static async findByEmail(email: string): Promise<UserType | null> {
     const normalized = String(email || '').trim().toLowerCase();
     const query = `
-      SELECT id, name, email, password, role, avatar, is_active, firebase_uid,
+      SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE LOWER(TRIM(email)) = ?
@@ -49,19 +49,23 @@ export class UserModel {
     }
 
     const hasFirebaseUid = await tableHasColumn('users', 'firebase_uid');
+    const tenantId =
+      userData.role === 'superadmin' ? null : userData.tenant_id ?? null;
+
     const query = hasFirebaseUid
-      ? `INSERT INTO users (name, email, password, role, avatar, is_active,
+      ? `INSERT INTO users (name, email, password, role, tenant_id, avatar, is_active,
           preferred_categories, completed_course_ids, target_job_role_id, firebase_uid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      : `INSERT INTO users (name, email, password, role, avatar, is_active,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      : `INSERT INTO users (name, email, password, role, tenant_id, avatar, is_active,
           preferred_categories, completed_course_ids, target_job_role_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     const baseParams = [
       userData.name,
       userData.email,
       hashedPassword,
       userData.role,
+      tenantId,
       userData.avatar || null,
       userData.is_active !== undefined ? userData.is_active : true,
       JSON.stringify(userData.preferred_categories || []),
@@ -90,8 +94,13 @@ export class UserModel {
     name: string;
     role?: UserRole;
     password?: string;
+    tenant_id?: number;
   }): Promise<UserType> {
     const role = data.role || 'student';
+    const defaultTenantId = parseInt(process.env.DEFAULT_TENANT_ID || '1', 10);
+    const tenant_id =
+      data.tenant_id ??
+      (Number.isFinite(defaultTenantId) && defaultTenantId > 0 ? defaultTenantId : 1);
     const rawPassword =
       typeof data.password === 'string' && data.password.length > 0
         ? data.password
@@ -99,9 +108,9 @@ export class UserModel {
     const hashedPassword =
       rawPassword.startsWith('$2a$') || rawPassword.startsWith('$2b$') ? rawPassword : await hashPassword(rawPassword);
     const query = `
-      INSERT INTO users (name, email, password, firebase_uid, role, avatar, is_active,
+      INSERT INTO users (name, email, password, firebase_uid, role, tenant_id, avatar, is_active,
                         preferred_categories, completed_course_ids, target_job_role_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const result = await DatabaseHelper.insert(query, [
@@ -110,6 +119,7 @@ export class UserModel {
       hashedPassword,
       data.firebase_uid,
       role,
+      role === 'superadmin' ? null : tenant_id,
       null,
       true,
       JSON.stringify([]),
@@ -169,11 +179,18 @@ export class UserModel {
     role?: UserRole;
     search?: string;
     is_active?: boolean;
+    /** When set, only users in this tenant (superadmin may omit for global list). */
+    tenant_id?: number | null;
   } = {}): Promise<{ users: UserType[]; total: number; page: number; limit: number }> {
-    const { page = 1, limit = 10, role, search, is_active } = options;
+    const { page = 1, limit = 10, role, search, is_active, tenant_id } = options;
 
     let whereConditions: string[] = [];
     let params: any[] = [];
+
+    if (tenant_id != null && tenant_id > 0) {
+      whereConditions.push('tenant_id = ?');
+      params.push(tenant_id);
+    }
 
     // Add role filter
     if (role) {
@@ -203,7 +220,7 @@ export class UserModel {
 
     // Get paginated results
     const { query: paginatedQuery, params: paginatedParams } = DatabaseHelper.getPaginationQuery(
-      `SELECT id, name, email, password, role, avatar, is_active,
+      `SELECT id, name, email, password, role, tenant_id, avatar, is_active,
               CASE
                 WHEN role = 'student' THEN COALESCE((SELECT COUNT(*) FROM enrollments e WHERE e.user_id = users.id), 0)
                 WHEN role = 'instructor' THEN COALESCE((
@@ -233,15 +250,20 @@ export class UserModel {
   }
 
   // Get users by role
-  static async findByRole(role: UserRole): Promise<UserType[]> {
-    const query = `
-      SELECT id, name, email, password, role, avatar, is_active,
+  static async findByRole(role: UserRole, tenantId?: number | null): Promise<UserType[]> {
+    const scoped = tenantId != null && tenantId > 0;
+    const query = scoped
+      ? `SELECT id, name, email, password, role, tenant_id, avatar, is_active,
+             preferred_categories, completed_course_ids, target_job_role_id,
+             created_at, updated_at
+      FROM users WHERE role = ? AND tenant_id = ? AND is_active = TRUE
+      ORDER BY created_at DESC`
+      : `SELECT id, name, email, password, role, tenant_id, avatar, is_active,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE role = ? AND is_active = TRUE
-      ORDER BY created_at DESC
-    `;
-    return DatabaseHelper.findMany<UserType>(query, [role]);
+      ORDER BY created_at DESC`;
+    return DatabaseHelper.findMany<UserType>(query, scoped ? [role, tenantId] : [role]);
   }
 
   // Check if user exists by email
@@ -287,13 +309,18 @@ export class UserModel {
   }
 
   // Get user statistics
-  static async getStats(): Promise<{
+  static async getStats(tenantId?: number | null): Promise<{
     total: number;
     byRole: Record<UserRole, number>;
     active: number;
   }> {
-    const total = await DatabaseHelper.count('users');
-    const active = await DatabaseHelper.count('users', 'is_active = TRUE');
+    const scoped = tenantId != null && tenantId > 0;
+    const tenantParams = scoped ? [tenantId] : [];
+    const tenantWhere = scoped ? 'tenant_id = ?' : '';
+    const activeWhere = scoped ? 'tenant_id = ? AND is_active = TRUE' : 'is_active = TRUE';
+
+    const total = await DatabaseHelper.count('users', tenantWhere, tenantParams);
+    const active = await DatabaseHelper.count('users', activeWhere, tenantParams);
 
     const stats: Record<UserRole, number> = {
       student: 0,
@@ -304,7 +331,8 @@ export class UserModel {
 
     try {
       const rows = await DatabaseHelper.findMany<{ role: string; count: number | bigint }>(
-        `SELECT role, COUNT(*) AS count FROM users WHERE is_active = TRUE GROUP BY role`
+        `SELECT role, COUNT(*) AS count FROM users WHERE ${activeWhere} GROUP BY role`,
+        tenantParams
       );
       for (const row of rows) {
         if (isValidUserRole(row.role)) {

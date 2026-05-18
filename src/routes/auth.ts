@@ -24,6 +24,8 @@ import {
   getSuperadminStats,
   listStudents,
   listSuperadminInstructors,
+  listTenants,
+  moveUserTenant,
 } from '../controllers/superadminController';
 import { authenticate, requireAdmin, requireSuperadmin } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
@@ -155,5 +157,14 @@ router.post(
 );
 
 router.get('/superadmin/stats', authenticate, requireSuperadmin, getSuperadminStats);
+router.get('/superadmin/tenants', authenticate, requireSuperadmin, listTenants);
+router.patch(
+  '/superadmin/users/:userId/tenant',
+  authenticate,
+  requireSuperadmin,
+  [body('tenant_id').isInt({ min: 1 }).withMessage('tenant_id must be a positive integer')],
+  handleValidation,
+  moveUserTenant
+);
 
 export default router;
