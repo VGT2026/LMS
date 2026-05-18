@@ -8,7 +8,7 @@ export class UserModel {
   // Find user by ID
   static async findById(id: number): Promise<UserType | null> {
     const query = `
-      SELECT id, name, email, password, role, avatar, is_active,
+      SELECT id, name, email, password, role, avatar, is_active, firebase_uid,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE id = ?
@@ -31,7 +31,7 @@ export class UserModel {
   static async findByEmail(email: string): Promise<UserType | null> {
     const normalized = String(email || '').trim().toLowerCase();
     const query = `
-      SELECT id, name, email, password, role, avatar, is_active,
+      SELECT id, name, email, password, role, avatar, is_active, firebase_uid,
              preferred_categories, completed_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE LOWER(TRIM(email)) = ?
@@ -49,8 +49,8 @@ export class UserModel {
 
     const query = `
       INSERT INTO users (name, email, password, role, avatar, is_active,
-                        preferred_categories, completed_course_ids, target_job_role_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        preferred_categories, completed_course_ids, target_job_role_id, firebase_uid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const result = await DatabaseHelper.insert(query, [
@@ -62,7 +62,8 @@ export class UserModel {
       userData.is_active !== undefined ? userData.is_active : true,
       JSON.stringify(userData.preferred_categories || []),
       JSON.stringify(userData.completed_course_ids || []),
-      userData.target_job_role_id || null
+      userData.target_job_role_id || null,
+      userData.firebase_uid || null,
     ]);
 
     // Return the created user

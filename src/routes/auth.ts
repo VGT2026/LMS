@@ -20,6 +20,7 @@ import {
   createAdmin,
   listAdmins,
   toggleAdminDeactivate,
+  syncAdminFirebase,
   getSuperadminStats,
 } from '../controllers/superadminController';
 import { authenticate, requireAdmin, requireSuperadmin } from '../middleware/auth';
@@ -144,6 +145,20 @@ router.patch(
   authenticate,
   requireSuperadmin,
   toggleAdminDeactivate
+);
+
+router.post(
+  '/superadmin/admins/:userId/sync-firebase',
+  authenticate,
+  requireSuperadmin,
+  [
+    body('password')
+      .isLength({ min: 8 })
+      .matches(/[a-zA-Z]/)
+      .matches(/[0-9]/),
+  ],
+  handleValidation,
+  syncAdminFirebase
 );
 
 router.get('/superadmin/stats', authenticate, requireSuperadmin, getSuperadminStats);

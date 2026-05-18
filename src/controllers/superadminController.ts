@@ -51,12 +51,31 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    let firebaseUid: string | undefined;
+    const { ensureFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
+    if (isFirebaseConfigured()) {
+      try {
+        const fb = await ensureFirebaseUser(emailNorm, String(password), nameTrim);
+        if (fb) firebaseUid = fb.uid;
+      } catch (err: any) {
+        const code = err?.code || err?.errorInfo?.code || '';
+        if (code === 'auth/email-already-exists') {
+          sendError(res, 'User with this email already exists in Firebase', 409);
+          return;
+        }
+        console.error('Firebase create admin error:', err);
+        sendError(res, 'Failed to create Firebase login for admin. Try again or check Firebase config.', 500);
+        return;
+      }
+    }
+
     const created = await UserModel.create({
       name: nameTrim,
       email: emailNorm,
       password: String(password),
       role: 'admin',
       is_active: true,
+      firebase_uid: firebaseUid,
     });
 
     await AuditLogModel.record({
@@ -66,9 +85,78 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       metadata: { email: emailNorm },
     });
 
-    sendSuccess(res, adminPublic(created), 'Admin account created successfully', 201);
+    sendSuccess(
+      res,
+      {
+        ...adminPublic(created),
+        firebaseLinked: Boolean(firebaseUid),
+        loginHint: firebaseUid
+          ? 'Sign in with email and password (Firebase or /api/auth/login).'
+          : 'Sign in with POST /api/auth/login using this email and password.',
+      },
+      'Admin account created successfully',
+      201
+    );
   } catch (err) {
     console.error('createAdmin error:', err);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
+/** POST /api/auth/superadmin/admins/:userId/sync-firebase — link Firebase login for an existing admin */
+export const syncAdminFirebase = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const idParam = req.params.userId ?? req.params.id;
+    const idString = Array.isArray(idParam) ? idParam[0] : idParam;
+    const userId = parseInt(String(idString), 10);
+    const { password } = req.body || {};
+
+    if (isNaN(userId)) {
+      sendError(res, 'Invalid user ID', 400);
+      return;
+    }
+    if (!password || String(password).length < 8) {
+      sendError(res, 'password is required (min 8 characters) to sync Firebase login', 400);
+      return;
+    }
+
+    const target = await UserModel.findById(userId);
+    if (!target) {
+      sendError(res, 'User not found', 404);
+      return;
+    }
+    if (target.role !== 'admin') {
+      sendError(res, 'Can only sync Firebase for admin users', 400);
+      return;
+    }
+
+    const { ensureFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
+    if (!isFirebaseConfigured()) {
+      sendError(res, 'Firebase is not configured on this server', 503);
+      return;
+    }
+
+    const fb = await ensureFirebaseUser(target.email, String(password), target.name);
+    if (!fb) {
+      sendError(res, 'Failed to sync Firebase user', 500);
+      return;
+    }
+
+    const updated = await UserModel.update(userId, {
+      firebase_uid: fb.uid,
+      password: String(password),
+    });
+
+    await AuditLogModel.record({
+      actor_id: req.user!.userId,
+      action: 'superadmin.admin.firebase_sync',
+      target_user_id: userId,
+    });
+
+    const safe = updated ? adminPublic(updated) : adminPublic(target);
+    sendSuccess(res, { ...safe, firebaseLinked: true }, 'Admin Firebase login synced');
+  } catch (err) {
+    console.error('syncAdminFirebase error:', err);
     sendError(res, 'Internal server error', 500);
   }
 };

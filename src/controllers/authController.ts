@@ -110,15 +110,29 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    let activeUser = user;
+    const { ensureFirebaseUser, isFirebaseConfigured } = await import('../utils/firebase');
+    if (isFirebaseConfigured() && !user.firebase_uid) {
+      try {
+        const fb = await ensureFirebaseUser(normalizedEmail, password, user.name);
+        if (fb) {
+          const updated = await UserModel.update(user.id!, { firebase_uid: fb.uid });
+          if (updated) activeUser = updated;
+        }
+      } catch (e) {
+        console.warn('[AUTH] Firebase sync on login failed:', (e as Error)?.message ?? e);
+      }
+    }
+
     // Generate token
     const token = generateToken({
-      userId: user.id!,
-      email: user.email,
-      role: user.role,
+      userId: activeUser.id!,
+      email: activeUser.email,
+      role: activeUser.role,
     });
 
     // Return user info (excluding password)
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, ...userWithoutPassword } = activeUser;
 
     sendSuccess(res, {
       user: userWithoutPassword,
@@ -761,7 +775,7 @@ export const firebaseAuth = async (req: Request, res: Response): Promise<void> =
       }
     }
 
-    if (!user.is_active) {
+    if (!userIsActive(user.is_active)) {
       sendError(res, 'Account is deactivated', 401);
       return;
     }

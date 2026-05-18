@@ -84,6 +84,16 @@ Only users with `role=admin` (superadmin accounts are not listed).
 
 ---
 
+### POST `/api/auth/superadmin/admins/:userId/sync-firebase`
+
+Use when an admin was created but **cannot log in via Firebase** (frontend email/password).
+
+**Body:** `{ "password": "SamePassword1" }` — must match what the admin will use to sign in.
+
+**200:** `{ success: true, data: { ..., firebaseLinked: true } }`
+
+---
+
 ### PATCH `/api/auth/superadmin/admins/:userId/deactivate`
 
 Toggles `is_active` for an **admin** user only. Cannot target self.
