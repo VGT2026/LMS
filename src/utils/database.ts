@@ -108,8 +108,8 @@ export class DatabaseHelper {
     params: any[] = []
   ): Promise<number> {
     const query = `SELECT COUNT(*) as count FROM ${table} ${conditions ? `WHERE ${conditions}` : ''}`;
-    const result = await this.findOne<{ count: number }>(query, params);
-    return result?.count || 0;
+    const result = await this.findOne<{ count: number | bigint }>(query, params);
+    return Number(result?.count ?? 0);
   }
 
   /**

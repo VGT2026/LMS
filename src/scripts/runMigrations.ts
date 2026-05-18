@@ -344,16 +344,22 @@ const runMigrations = async () => {
 
     // Migration: extend users.role ENUM with superadmin
     try {
-      await connection.query(
-        "ALTER TABLE users MODIFY COLUMN role ENUM('student', 'instructor', 'admin', 'superadmin') NOT NULL DEFAULT 'student'"
+      const [colRows] = await connection.query<mysql.RowDataPacket[]>(
+        `SELECT COLUMN_TYPE AS column_type FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
       );
-      console.log('✅ users.role ENUM includes superadmin');
-    } catch (err: any) {
-      if (err.code === 'ER_PARSE_ERROR' || err.code === 'ER_TRUNCATED_WRONG_VALUE') {
-        console.warn('⚠️ Could not alter users.role ENUM:', err.message);
-      } else if (err.code !== 'ER_DUP_FIELDNAME') {
-        console.log('⏭️ users.role ENUM may already include superadmin');
+      const columnType = String(colRows[0]?.column_type || '').toLowerCase();
+      if (columnType.includes("'superadmin'")) {
+        console.log('⏭️ users.role already includes superadmin');
+      } else {
+        await connection.query(
+          "ALTER TABLE users MODIFY COLUMN role ENUM('student', 'instructor', 'admin', 'superadmin') NOT NULL DEFAULT 'student'"
+        );
+        console.log('✅ users.role ENUM includes superadmin');
       }
+    } catch (err: any) {
+      console.error('❌ Failed to extend users.role ENUM with superadmin:', err.message || err);
+      throw err;
     }
 
     // Migration: audit_logs table
@@ -389,7 +395,14 @@ const runMigrations = async () => {
         'SELECT id, role FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
         [superEmail]
       );
-      if (existing.length === 0) {
+      const [enumCheck] = await connection.query<mysql.RowDataPacket[]>(
+        `SELECT COLUMN_TYPE AS column_type FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
+      );
+      const roleCol = String(enumCheck[0]?.column_type || '').toLowerCase();
+      if (!roleCol.includes("'superadmin'")) {
+        console.warn('⚠️ Skip bootstrap superadmin: users.role ENUM does not include superadmin yet');
+      } else if (existing.length === 0) {
         const hash = await bcrypt.hash(superPassword, 12);
         await connection.query(
           `INSERT INTO users (name, email, password, role, is_active, preferred_categories, completed_course_ids)

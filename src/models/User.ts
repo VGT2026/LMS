@@ -1,6 +1,7 @@
 import { User as UserType, UserRole } from '../types';
 import DatabaseHelper from '../utils/database';
 import { hashPassword } from '../utils/auth';
+import { isValidUserRole } from '../utils/rolePolicy';
 import crypto from 'crypto';
 
 export class UserModel {
@@ -286,6 +287,7 @@ export class UserModel {
     active: number;
   }> {
     const total = await DatabaseHelper.count('users');
+    const active = await DatabaseHelper.count('users', 'is_active = TRUE');
 
     const stats: Record<UserRole, number> = {
       student: 0,
@@ -294,16 +296,20 @@ export class UserModel {
       superadmin: 0,
     };
 
-    for (const role of Object.keys(stats) as UserRole[]) {
-      stats[role] = await DatabaseHelper.count('users', 'role = ? AND is_active = TRUE', [role]);
+    // GROUP BY avoids WHERE role='superadmin' on ENUMs that have not been migrated yet.
+    const rows = await DatabaseHelper.findMany<{ role: string; count: number | bigint }>(
+      `SELECT role, COUNT(*) AS count FROM users WHERE is_active = TRUE GROUP BY role`
+    );
+    for (const row of rows) {
+      if (isValidUserRole(row.role)) {
+        stats[row.role] = Number(row.count ?? 0);
+      }
     }
-
-    const active = await DatabaseHelper.count('users', 'is_active = TRUE');
 
     return {
       total,
       byRole: stats,
-      active
+      active,
     };
   }
 }

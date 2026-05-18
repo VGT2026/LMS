@@ -29,3 +29,22 @@ export async function tableHasColumn(tableName: string, columnName: string): Pro
     return false;
   }
 }
+
+/** True if `users.role` is ENUM/VARCHAR and allows the given value (e.g. superadmin after migration). */
+export async function userRoleAllows(value: string): Promise<boolean> {
+  try {
+    const row = await DatabaseHelper.findOne<{ column_type: string }>(
+      `SELECT COLUMN_TYPE AS column_type FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
+    );
+    const colType = (row?.column_type || '').toLowerCase();
+    if (!colType) return true;
+    if (colType.startsWith('enum(')) {
+      return colType.includes(`'${value}'`);
+    }
+    return true;
+  } catch (e) {
+    console.warn('[mysqlSchema] userRoleAllows check failed:', e);
+    return false;
+  }
+}

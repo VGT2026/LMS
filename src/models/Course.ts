@@ -283,7 +283,7 @@ export class CourseModel {
     const categoryResults = await DatabaseHelper.findMany<{ category: string; count: number }>(categoryQuery);
     const byCategory: Record<string, number> = {};
     categoryResults.forEach(row => {
-      byCategory[row.category] = row.count;
+      byCategory[row.category] = Number(row.count ?? 0);
     });
 
     // Level stats
@@ -291,7 +291,7 @@ export class CourseModel {
     const levelResults = await DatabaseHelper.findMany<{ level: string; count: number }>(levelQuery);
     const byLevel: Record<string, number> = {};
     levelResults.forEach(row => {
-      byLevel[row.level] = row.count;
+      byLevel[row.level] = Number(row.count ?? 0);
     });
 
     return {

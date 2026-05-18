@@ -87,10 +87,10 @@ export const getAdminStats = async (req: Request, res: Response): Promise<void> 
     sendSuccess(
       res,
       {
-        totalUsers: userStats.total,
-        activeUsers: userStats.active,
-        totalCourses: courseStats.total,
-        activeCourses: courseStats.active,
+        totalUsers: Number(userStats.total),
+        activeUsers: Number(userStats.active),
+        totalCourses: Number(courseStats.total),
+        activeCourses: Number(courseStats.active),
       },
       'Admin stats retrieved'
     );

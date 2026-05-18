@@ -155,14 +155,14 @@ export const getSuperadminStats = async (req: Request, res: Response): Promise<v
     sendSuccess(
       res,
       {
-        totalUsers: userStats.total,
-        activeUsers: userStats.active,
-        totalAdmins: userStats.byRole.admin,
-        totalSuperadmins: userStats.byRole.superadmin,
-        totalInstructors: userStats.byRole.instructor,
-        totalStudents: userStats.byRole.student,
-        totalCourses: courseStats.total,
-        activeCourses: courseStats.active,
+        totalUsers: Number(userStats.total),
+        activeUsers: Number(userStats.active),
+        totalAdmins: Number(userStats.byRole.admin),
+        totalSuperadmins: Number(userStats.byRole.superadmin),
+        totalInstructors: Number(userStats.byRole.instructor),
+        totalStudents: Number(userStats.byRole.student),
+        totalCourses: Number(courseStats.total),
+        activeCourses: Number(courseStats.active),
         usersByRole: userStats.byRole,
       },
       'Superadmin stats retrieved'
