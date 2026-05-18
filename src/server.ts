@@ -3,6 +3,8 @@ import { createApp } from './app';
 import { testConnection } from './config/database';
 import { UserModel } from './models/User';
 import { hashPassword } from './utils/auth';
+import { getSuperadminBootstrapConfig } from './utils/superadminBootstrap';
+import { userRoleAllows } from './utils/mysqlSchema';
 
 dotenv.config();
 
@@ -31,13 +33,14 @@ const initializeAdminUser = async (): Promise<void> => {
 };
 
 const initializeSuperadminUser = async (): Promise<void> => {
-  const email = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.SUPERADMIN_PASSWORD;
-  const name = process.env.SUPERADMIN_NAME?.trim() || 'Super Administrator';
-  if (!email || !password) {
-    return;
-  }
+  const { email, password, name } = getSuperadminBootstrapConfig();
   try {
+    const roleOk = await userRoleAllows('superadmin');
+    if (!roleOk) {
+      console.warn('⚠️ Skip superadmin bootstrap: users.role ENUM missing superadmin (run migrations)');
+      return;
+    }
+
     const existing = await UserModel.findByEmail(email);
     if (!existing) {
       await UserModel.create({
@@ -48,9 +51,29 @@ const initializeSuperadminUser = async (): Promise<void> => {
         is_active: true,
       });
       console.log('✅ Superadmin user initialized:', email);
-    } else if (existing.role !== 'superadmin') {
-      await UserModel.update(existing.id!, { role: 'superadmin' });
-      console.log('✅ Existing user upgraded to superadmin:', email);
+      return;
+    }
+
+    const updates: { role?: 'superadmin'; password?: string; is_active?: boolean } = {};
+    if (existing.role !== 'superadmin') {
+      updates.role = 'superadmin';
+    }
+    if (!existing.is_active) {
+      updates.is_active = true;
+    }
+    const shouldSyncPassword =
+      process.env.SUPERADMIN_RESET_PASSWORD === 'true' ||
+      existing.role !== 'superadmin' ||
+      process.env.SUPERADMIN_SYNC_PASSWORD === 'true';
+    if (shouldSyncPassword) {
+      updates.password = password;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await UserModel.update(existing.id!, updates);
+      console.log('✅ Superadmin user updated:', email);
+    } else {
+      console.log('✅ Superadmin user already exists:', email);
     }
   } catch (error) {
     console.error('❌ Failed to initialize superadmin user:', error);

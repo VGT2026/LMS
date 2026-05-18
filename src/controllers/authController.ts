@@ -8,6 +8,7 @@ import { verifyFirebaseToken, isFirebaseConfigured } from '../utils/firebase';
 import { parsePageLimit, queryScalar } from '../utils/queryParse';
 import { hasAdminPanelAccess, canAssignRole, isValidUserRole } from '../utils/rolePolicy';
 import { AuditLogModel } from '../models/AuditLog';
+import { userIsActive } from '../utils/userActive';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -89,7 +90,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check if user is active
-    if (!user.is_active) {
+    if (!userIsActive(user.is_active)) {
       console.warn('[AUTH] Login failed - account deactivated:', normalizedEmail);
       sendError(res, 'Account is deactivated', 401);
       return;

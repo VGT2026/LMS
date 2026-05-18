@@ -5,6 +5,7 @@ import { sendError } from '../utils/response';
 import { UserRole } from '../types';
 import { hasAdminPanelAccess } from '../utils/rolePolicy';
 import { UserModel } from '../models/User';
+import { userIsActive } from '../utils/userActive';
 
 // Extend Express Request interface
 declare global {
@@ -33,7 +34,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       sendError(res, 'User not found', 401);
       return;
     }
-    if (!user.is_active) {
+    if (!userIsActive(user.is_active)) {
       sendError(res, 'Account is deactivated. Please contact administrator.', 401);
       return;
     }
@@ -60,7 +61,7 @@ export const optionalAuthenticate = async (req: Request, res: Response, next: Ne
     const token = authHeader.substring(7);
     const decoded = verifyToken(token);
     const user = await UserModel.findById(decoded.userId);
-    if (user && user.is_active) {
+    if (user && userIsActive(user.is_active)) {
       req.user = {
         userId: user.id!,
         email: user.email,

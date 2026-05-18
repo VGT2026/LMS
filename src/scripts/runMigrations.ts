@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+import { getSuperadminBootstrapConfig } from '../utils/superadminBootstrap';
 
 dotenv.config();
 
@@ -386,41 +387,43 @@ const runMigrations = async () => {
       else throw err;
     }
 
-    // Bootstrap superadmin from env (create only if missing)
-    const superEmail = process.env.SUPERADMIN_EMAIL?.trim().toLowerCase();
-    const superPassword = process.env.SUPERADMIN_PASSWORD;
-    const superName = process.env.SUPERADMIN_NAME?.trim() || 'Super Administrator';
-    if (superEmail && superPassword) {
-      const [existing] = await connection.query<mysql.RowDataPacket[]>(
-        'SELECT id, role FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
-        [superEmail]
+    // Bootstrap superadmin (defaults: superadmin@lmspro.com — override with SUPERADMIN_* env)
+    const { email: superEmail, password: superPassword, name: superName } = getSuperadminBootstrapConfig();
+    const [existing] = await connection.query<mysql.RowDataPacket[]>(
+      'SELECT id, role, password FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
+      [superEmail]
+    );
+    const [enumCheck] = await connection.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_TYPE AS column_type FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
+    );
+    const roleCol = String(enumCheck[0]?.column_type || '').toLowerCase();
+    if (!roleCol.includes("'superadmin'")) {
+      console.warn('⚠️ Skip bootstrap superadmin: users.role ENUM does not include superadmin yet');
+    } else if (existing.length === 0) {
+      const hash = await bcrypt.hash(superPassword, 12);
+      await connection.query(
+        `INSERT INTO users (name, email, password, role, is_active, preferred_categories, completed_course_ids)
+         VALUES (?, ?, ?, 'superadmin', TRUE, '[]', '[]')`,
+        [superName, superEmail, hash]
       );
-      const [enumCheck] = await connection.query<mysql.RowDataPacket[]>(
-        `SELECT COLUMN_TYPE AS column_type FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
-      );
-      const roleCol = String(enumCheck[0]?.column_type || '').toLowerCase();
-      if (!roleCol.includes("'superadmin'")) {
-        console.warn('⚠️ Skip bootstrap superadmin: users.role ENUM does not include superadmin yet');
-      } else if (existing.length === 0) {
-        const hash = await bcrypt.hash(superPassword, 12);
-        await connection.query(
-          `INSERT INTO users (name, email, password, role, is_active, preferred_categories, completed_course_ids)
-           VALUES (?, ?, ?, 'superadmin', TRUE, '[]', '[]')`,
-          [superName, superEmail, hash]
-        );
-        console.log('✅ Bootstrap superadmin created:', superEmail);
-      } else {
-        const row = existing[0];
-        if (row.role !== 'superadmin') {
-          await connection.query("UPDATE users SET role = 'superadmin' WHERE id = ?", [row.id]);
-          console.log('✅ Upgraded existing user to superadmin:', superEmail);
-        } else {
-          console.log('⏭️ Bootstrap superadmin already exists:', superEmail);
-        }
-      }
+      console.log('✅ Bootstrap superadmin created:', superEmail);
     } else {
-      console.log('⏭️ SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD not set — skip bootstrap superadmin');
+      const row = existing[0];
+      const hash = await bcrypt.hash(superPassword, 12);
+      if (row.role !== 'superadmin') {
+        await connection.query('UPDATE users SET role = ?, password = ?, is_active = TRUE WHERE id = ?', [
+          'superadmin',
+          hash,
+          row.id,
+        ]);
+        console.log('✅ Upgraded existing user to superadmin (password synced):', superEmail);
+      } else if (process.env.SUPERADMIN_RESET_PASSWORD === 'true') {
+        await connection.query('UPDATE users SET password = ? WHERE id = ?', [hash, row.id]);
+        console.log('✅ Superadmin password reset:', superEmail);
+      } else {
+        console.log('⏭️ Bootstrap superadmin already exists:', superEmail);
+      }
     }
 
     console.log('🎯 Migrations complete');

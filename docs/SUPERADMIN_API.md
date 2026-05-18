@@ -21,10 +21,15 @@ JWT payload includes `role`: `student` | `instructor` | `admin` | `superadmin`.
 Set in `.env` (also applied on `npm run db:migrate` and server start):
 
 ```env
-SUPERADMIN_EMAIL=you@company.com
-SUPERADMIN_PASSWORD=ChangeMe123
+# Defaults (if unset): superadmin@lmspro.com / SuperAdmin123!
+SUPERADMIN_EMAIL=superadmin@lmspro.com
+SUPERADMIN_PASSWORD=SuperAdmin123!
 SUPERADMIN_NAME=Platform Superadmin
 ```
+
+Account is created on **migrate** (`npm start`) and **server start**. If login fails after an old partial setup, run once on Railway:
+
+`SUPERADMIN_RESET_PASSWORD=true` then redeploy, or locally: `npm run db:ensure-superadmin`
 
 ## Endpoints
 
