@@ -207,10 +207,7 @@ export class UserModel {
               CASE
                 WHEN role = 'student' THEN COALESCE((SELECT COUNT(*) FROM enrollments e WHERE e.user_id = users.id), 0)
                 WHEN role = 'instructor' THEN COALESCE((
-                  SELECT COUNT(*)
-                  FROM enrollments e
-                  INNER JOIN courses c ON c.id = e.course_id
-                  WHERE c.instructor_id = users.id
+                  SELECT COUNT(*) FROM courses c WHERE c.instructor_id = users.id
                 ), 0)
                 ELSE 0
               END AS enrolled,

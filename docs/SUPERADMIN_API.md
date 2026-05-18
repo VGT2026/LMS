@@ -76,6 +76,33 @@ Firebase linking is **best-effort**; the DB user is always created for `POST /lo
 
 ---
 
+## GET `/superadmin/students`
+
+**Query:** `page`, `limit`, `search` (name or email)
+
+**200:** `data` = array of students + `pagination` object.  
+Fields: `id`, `name`, `email`, `role: "student"`, `is_active`, `enrolled` (enrollment count), `preferred_categories`, `completed_course_ids`, `target_job_role_id`, `created_at`, `updated_at`.  
+No passwords.
+
+---
+
+## GET `/superadmin/instructors`
+
+Same as students; `role: "instructor"`, `enrolled` = number of courses they teach.
+
+---
+
+## Existing routes (superadmin JWT allowed)
+
+| Route | Purpose |
+|-------|---------|
+| `GET /admin/users?role=student\|instructor` | Same data via admin list (admin + superadmin) |
+| `PATCH /admin/users/:id/toggle-status` | Activate/deactivate student or instructor |
+| `POST /admin/instructor` | Create instructor |
+| `GET /superadmin/stats` | Platform metrics |
+
+---
+
 ## POST `/login`
 
 **Body:** `{ "email", "password" }`

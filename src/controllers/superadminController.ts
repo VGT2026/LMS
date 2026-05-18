@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
-import { sendSuccess, sendError } from '../utils/response';
+import { sendSuccess, sendError, sendPagination } from '../utils/response';
 import { UserModel } from '../models/User';
 import { CourseModel } from '../models/Course';
 import { AuditLogModel } from '../models/AuditLog';
 import { validateAdminPassword } from '../utils/passwordPolicy';
 import { parsePageLimit, queryScalar } from '../utils/queryParse';
 import { formatAdminPublic } from '../utils/adminUserFormat';
+import { formatPlatformUser } from '../utils/platformUserFormat';
+import { UserRole } from '../types';
 
 async function tryLinkFirebase(
   email: string,
@@ -161,6 +163,45 @@ export const syncAdminFirebase = async (req: Request, res: Response): Promise<vo
     console.error('syncAdminFirebase error:', err);
     sendError(res, 'Internal server error', 500);
   }
+};
+
+async function listUsersByRole(
+  req: Request,
+  res: Response,
+  role: Extract<UserRole, 'student' | 'instructor'>,
+  label: string
+): Promise<void> {
+  try {
+    const { page, limit } = parsePageLimit(req.query.page, req.query.limit);
+    const search = queryScalar(req.query.search)?.trim();
+
+    const result = await UserModel.findAll({
+      page,
+      limit,
+      role,
+      search: search || undefined,
+    });
+
+    const rows = result.users.map((u) => formatPlatformUser(u));
+    sendPagination(res, rows, result.page, result.limit, result.total, `${label} retrieved successfully`);
+  } catch (err: any) {
+    console.error(`listUsersByRole(${role}) error:`, err);
+    sendError(
+      res,
+      process.env.NODE_ENV === 'development' ? `Internal server error: ${err.message}` : 'Internal server error',
+      500
+    );
+  }
+}
+
+/** GET /api/auth/superadmin/students */
+export const listStudents = async (req: Request, res: Response): Promise<void> => {
+  await listUsersByRole(req, res, 'student', 'Students');
+};
+
+/** GET /api/auth/superadmin/instructors */
+export const listSuperadminInstructors = async (req: Request, res: Response): Promise<void> => {
+  await listUsersByRole(req, res, 'instructor', 'Instructors');
 };
 
 /** GET /api/auth/superadmin/admins */

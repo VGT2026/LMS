@@ -22,6 +22,8 @@ import {
   toggleAdminDeactivate,
   syncAdminFirebase,
   getSuperadminStats,
+  listStudents,
+  listSuperadminInstructors,
 } from '../controllers/superadminController';
 import { authenticate, requireAdmin, requireSuperadmin } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
@@ -132,6 +134,8 @@ router.post(
   createAdmin
 );
 
+router.get('/superadmin/students', authenticate, requireSuperadmin, listStudents);
+router.get('/superadmin/instructors', authenticate, requireSuperadmin, listSuperadminInstructors);
 router.get('/superadmin/admins', authenticate, requireSuperadmin, listAdmins);
 
 router.patch(

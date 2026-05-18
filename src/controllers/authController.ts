@@ -537,6 +537,10 @@ export const toggleUserStatus = async (req: Request, res: Response): Promise<voi
       sendError(res, 'Cannot change status of superadmin users', 403);
       return;
     }
+    if (adminUser.role === 'admin' && target.role === 'admin') {
+      sendError(res, 'Only superadmin can change status of admin accounts', 403);
+      return;
+    }
 
     const updatedUser = await UserModel.toggleActiveStatus(userId);
 

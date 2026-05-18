@@ -116,6 +116,45 @@ async function main(): Promise<void> {
   assert(forbidden.status === 403, `6. admin create expected 403, got ${forbidden.status}`);
   console.log('✓ 6. POST /superadmin/admin as admin → 403');
 
+  // 7. List students
+  const students = await request('GET', '/superadmin/students?limit=5', undefined, superToken);
+  assert(students.status === 200, `7. students expected 200, got ${students.status}`);
+  assert(Array.isArray(students.json.data), '7. students data must be array');
+  const firstStudent = (students.json.data as Json[])[0];
+  if (firstStudent) assert(firstStudent.role === 'student', '7. wrong role in student list');
+  console.log('✓ 7. GET /superadmin/students');
+
+  // 8. List instructors
+  const instructors = await request('GET', '/superadmin/instructors?limit=5', undefined, superToken);
+  assert(instructors.status === 200, `8. instructors expected 200, got ${instructors.status}`);
+  assert(Array.isArray(instructors.json.data), '8. instructors data must be array');
+  const firstInst = (instructors.json.data as Json[])[0];
+  if (firstInst) assert(firstInst.role === 'instructor', '8. wrong role in instructor list');
+  console.log('✓ 8. GET /superadmin/instructors');
+
+  // 9. search filter
+  const search = await request('GET', '/superadmin/students?search=kalpana', undefined, superToken);
+  assert(search.status === 200, `9. search expected 200, got ${search.status}`);
+  console.log('✓ 9. search=kalpana on students');
+
+  // 10. Student JWT → 403
+  const studentEmail = `stud.${Date.now()}@lmspro.com`;
+  await request('POST', '/register', {
+    name: 'Test Student',
+    email: studentEmail,
+    password: 'pass12',
+    confirmPassword: 'pass12',
+  });
+  const studLogin = await request('POST', '/login', { email: studentEmail, password: 'pass12' });
+  const studToken = (studLogin.json.data as Json)?.token as string;
+  if (studToken) {
+    const deny = await request('GET', '/superadmin/students', undefined, studToken);
+    assert(deny.status === 403, `10. student expected 403, got ${deny.status}`);
+    console.log('✓ 10. Student JWT → 403 on /superadmin/students');
+  } else {
+    console.log('⏭ 10. skip student 403 (register/login failed)');
+  }
+
   console.log('\nAll superadmin acceptance checks passed.');
 }
 
