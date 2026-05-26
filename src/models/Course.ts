@@ -285,6 +285,49 @@ export class CourseModel {
     return result.courses;
   }
 
+  /** Published catalog rows for roadmap AI (active + approved, optional tenant). */
+  static async findPublishableByIds(
+    courseIds: number[],
+    tenantId?: number | null
+  ): Promise<
+    Array<{
+      id: number;
+      title: string;
+      description?: string | null;
+      category: string;
+      thumbnail?: string | null;
+      duration?: string | null;
+      instructor_name?: string | null;
+      tenant_id?: number | null;
+    }>
+  > {
+    if (courseIds.length === 0) return [];
+
+    const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
+    const unique = [...new Set(courseIds)];
+    const placeholders = unique.map(() => '?').join(',');
+    const params: Array<number> = [...unique];
+
+    const conditions = [`c.id IN (${placeholders})`, 'c.is_active = TRUE'];
+    if (hasApprovalStatus) {
+      conditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+    }
+    if (tenantId != null && tenantId > 0) {
+      conditions.push('c.tenant_id = ?');
+      params.push(tenantId);
+    }
+
+    const query = `
+      SELECT c.id, c.title, c.description, c.category, c.thumbnail, c.duration, c.tenant_id,
+             u.name AS instructor_name
+      FROM courses c
+      LEFT JOIN users u ON c.instructor_id = u.id
+      WHERE ${conditions.join(' AND ')}
+    `;
+
+    return DatabaseHelper.findMany(query, params);
+  }
+
   /** Ensure course IDs exist and belong to tenant (when tenantId set). */
   static async validateIdsForTenant(
     courseIds: number[],

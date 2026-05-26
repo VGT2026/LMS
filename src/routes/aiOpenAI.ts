@@ -8,6 +8,7 @@ import {
   checkAIHealth,
   getUserSummaries,
 } from '../controllers/aiControllerOpenAI';
+import { recommendCareerRoadmap } from '../controllers/aiRoadmapController';
 
 console.log('✅ [AIOPENAI.TS] Routes file loaded - NEW OpenAI routes are ready!');
 
@@ -85,6 +86,15 @@ router.get('/chat', authenticate, methodNotAllowedForAsk);
  * }
  */
 router.post('/summarize', authenticate, summarizeContent);
+
+/**
+ * POST /api/ai/roadmap/recommend
+ * Career roadmap AI — rank real courses and suggest study order (tenant-scoped, published only).
+ *
+ * Body: { "courseIds": [1, 2, 3] }  (min 1, max 20)
+ * Query (superadmin only): ?tenant_id=
+ */
+router.post('/roadmap/recommend', authenticate, recommendCareerRoadmap);
 
 /**
  * POST /api/ai/generate-quiz

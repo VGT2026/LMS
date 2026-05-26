@@ -313,7 +313,7 @@ export const checkAIHealth = async (req: Request, res: Response): Promise<void> 
     res.status(200).json({
       success: true,
       message: 'AI service is available',
-      features: ['tutoring', 'summarization', 'quiz-generation', 'assignment-grading'],
+      features: ['tutoring', 'summarization', 'quiz-generation', 'assignment-grading', 'roadmap-recommend'],
       apiKeyConfigured: hasOpenAIKey,
       apiProvider: 'openai',
     });
