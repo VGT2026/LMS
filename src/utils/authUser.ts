@@ -17,9 +17,11 @@ export function buildJwtFromUser(user: User): JWTPayload {
 
 export async function buildAuthUserResponse(user: User) {
   let tenantName: string | undefined;
+  let tenantSlug: string | undefined;
   if (user.tenant_id != null && Number(user.tenant_id) > 0) {
     const t = await TenantModel.findById(Number(user.tenant_id));
     tenantName = t?.name;
+    tenantSlug = t?.slug ?? undefined;
   }
   return {
     id: Number(user.id),
@@ -27,6 +29,6 @@ export async function buildAuthUserResponse(user: User) {
     email: user.email,
     role: user.role,
     is_active: userIsActive(user.is_active),
-    ...publicTenantFields(user.tenant_id, tenantName),
+    ...publicTenantFields(user.tenant_id, tenantName, tenantSlug),
   };
 }

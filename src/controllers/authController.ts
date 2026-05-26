@@ -228,13 +228,15 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
     }
 
     let tenantName: string | undefined;
+    let tenantSlug: string | undefined;
     if (userProfile.tenant_id != null && Number(userProfile.tenant_id) > 0) {
       const t = await TenantModel.findById(Number(userProfile.tenant_id));
       tenantName = t?.name;
+      tenantSlug = t?.slug ?? undefined;
     }
     sendSuccess(
       res,
-      { ...formatPublicProfile(userProfile), ...publicTenantFields(userProfile.tenant_id, tenantName) },
+      { ...formatPublicProfile(userProfile), ...publicTenantFields(userProfile.tenant_id, tenantName, tenantSlug) },
       'Profile retrieved successfully'
     );
   } catch (error) {
