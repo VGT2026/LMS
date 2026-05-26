@@ -25,7 +25,8 @@ export interface User {
   // Student specific fields
   preferred_categories?: string[];
   completed_course_ids?: string[];
-  target_job_role_id?: number;
+  roadmap_course_ids?: string[];
+  target_job_role_id?: number | string | null;
 }
 
 export type CourseApprovalStatus = 'pending' | 'approved' | 'rejected';

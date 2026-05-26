@@ -16,6 +16,9 @@ import {
   parseOptionalTenantId,
   resolveTenantFilter,
 } from '../utils/tenantScope';
+import { formatPublicProfile } from '../utils/profileFormat';
+import { parseTargetJobRoleId } from '../utils/jsonArrayFields';
+import { validateRoadmapCourseIds } from '../utils/roadmapCourses';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -222,10 +225,7 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Return user info (excluding password)
-    const { password, ...profile } = userProfile;
-
-    sendSuccess(res, profile, 'Profile retrieved successfully');
+    sendSuccess(res, formatPublicProfile(userProfile), 'Profile retrieved successfully');
   } catch (error) {
     console.error('Get profile error:', error);
     sendError(res, 'Internal server error', 500);
@@ -241,9 +241,13 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const { name, target_job_role_id } = req.body as { name?: string; target_job_role_id?: string | null };
+    const { name, target_job_role_id, roadmap_course_ids } = req.body as {
+      name?: string;
+      target_job_role_id?: string | number | null;
+      roadmap_course_ids?: unknown;
+    };
 
-    const updateData: Record<string, any> = {};
+    const updateData: Record<string, unknown> = {};
 
     if (name !== undefined) {
       if (typeof name !== 'string') {
@@ -263,7 +267,16 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     }
 
     if (target_job_role_id !== undefined) {
-      updateData.target_job_role_id = target_job_role_id || null;
+      updateData.target_job_role_id = parseTargetJobRoleId(target_job_role_id);
+    }
+
+    if (roadmap_course_ids !== undefined) {
+      const validation = await validateRoadmapCourseIds(authUser.userId, roadmap_course_ids);
+      if (!validation.ok) {
+        sendError(res, validation.message, 400);
+        return;
+      }
+      updateData.roadmap_course_ids = validation.ids;
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -277,8 +290,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const { password, ...profile } = updated;
-    sendSuccess(res, profile, 'Profile updated successfully');
+    sendSuccess(res, formatPublicProfile(updated), 'Profile updated successfully');
   } catch (error) {
     console.error('Update profile error:', error);
     sendError(res, 'Internal server error', 500);

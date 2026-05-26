@@ -43,7 +43,11 @@ function applyCourseListTenantScope(
   if (user.role === 'instructor') {
     options = { ...options, instructor_id: user.userId };
   } else if (user.role === 'student') {
-    options = { ...options, enrolled_user_id: user.userId };
+    const enrolledOnly =
+      req.query.enrolled_only === 'true' || req.query.enrolled_only === '1';
+    if (enrolledOnly) {
+      options = { ...options, enrolled_user_id: user.userId };
+    }
     const jwtTenant = getJwtTenantId(user);
     if (jwtTenant != null) {
       options = { ...options, tenant_id: jwtTenant };
@@ -89,6 +93,14 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
     const searchRaw = Array.isArray(search) ? search[0] : search;
     if (typeof searchRaw === 'string' && searchRaw.trim()) {
       options.search = searchRaw.trim();
+    }
+
+    if (req.user?.role === 'student') {
+      const incRaw = Array.isArray(include_inactive) ? include_inactive[0] : include_inactive;
+      if (incRaw !== 'true') {
+        options.is_active = true;
+        options.approval_status = 'approved';
+      }
     }
 
     const scoped = applyCourseListTenantScope(

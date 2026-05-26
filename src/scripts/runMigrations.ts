@@ -524,6 +524,21 @@ const runMigrations = async () => {
     );
     console.log('✅ Backfilled courses.tenant_id');
 
+    try {
+      await connection.query(
+        "ALTER TABLE users ADD COLUMN roadmap_course_ids JSON NULL AFTER completed_course_ids"
+      );
+      console.log('✅ Added users.roadmap_course_ids');
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_FIELDNAME') console.log('⏭️ users.roadmap_course_ids already exists');
+      else throw err;
+    }
+
+    await connection.query(
+      `UPDATE users SET roadmap_course_ids = '[]' WHERE roadmap_course_ids IS NULL`
+    );
+    console.log('✅ Backfilled users.roadmap_course_ids');
+
     console.log('🎯 Migrations complete');
   } catch (error) {
     console.error('❌ Migration failed:', error);

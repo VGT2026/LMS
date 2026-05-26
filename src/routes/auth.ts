@@ -17,6 +17,12 @@ import {
   searchUsers,
 } from '../controllers/authController';
 import {
+  getCareerRoadmap,
+  replaceRoadmapCourses,
+  appendRoadmapCourse,
+  removeRoadmapCourse,
+} from '../controllers/careerRoadmapController';
+import {
   createAdmin,
   listAdmins,
   toggleAdminDeactivate,
@@ -93,6 +99,10 @@ router.post('/dev-admin-login', devAdminLogin);
 router.get('/profile', authenticate, getProfile);
 router.post('/profile', authenticate, updateProfile);
 router.patch('/profile', authenticate, updateProfile);
+router.get('/career-roadmap', authenticate, getCareerRoadmap);
+router.put('/career-roadmap/courses', authenticate, replaceRoadmapCourses);
+router.post('/career-roadmap/courses/:courseId', authenticate, appendRoadmapCourse);
+router.delete('/career-roadmap/courses/:courseId', authenticate, removeRoadmapCourse);
 router.post('/change-password', authenticate, changePassword);
 router.patch('/change-password', authenticate, changePassword);
 router.get('/search', authenticate, searchUsers);

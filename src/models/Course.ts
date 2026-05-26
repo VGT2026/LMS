@@ -285,6 +285,45 @@ export class CourseModel {
     return result.courses;
   }
 
+  /** Ensure course IDs exist and belong to tenant (when tenantId set). */
+  static async validateIdsForTenant(
+    courseIds: number[],
+    tenantId: number | null
+  ): Promise<{ valid: number[]; invalid: number[] }> {
+    if (courseIds.length === 0) {
+      return { valid: [], invalid: [] };
+    }
+
+    const unique = [...new Set(courseIds)];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await DatabaseHelper.findMany<{ id: number; tenant_id: number | null }>(
+      `SELECT id, tenant_id FROM courses WHERE id IN (${placeholders})`,
+      unique
+    );
+    const byId = new Map(rows.map((r) => [Number(r.id), r.tenant_id]));
+
+    const valid: number[] = [];
+    const invalid: number[] = [];
+    for (const id of courseIds) {
+      if (!byId.has(id)) {
+        invalid.push(id);
+        continue;
+      }
+      const courseTenant = byId.get(id);
+      if (
+        tenantId != null &&
+        tenantId > 0 &&
+        courseTenant != null &&
+        Number(courseTenant) !== tenantId
+      ) {
+        invalid.push(id);
+        continue;
+      }
+      valid.push(id);
+    }
+    return { valid, invalid };
+  }
+
   /** Lightweight counts for admin dashboard (tolerates missing optional columns). */
   static async getDashboardCounts(tenantId?: number | null): Promise<{ total: number; active: number }> {
     const scoped = tenantId != null && tenantId > 0;

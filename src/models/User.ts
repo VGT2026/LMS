@@ -10,7 +10,7 @@ export class UserModel {
   static async findById(id: number): Promise<UserType | null> {
     const query = `
       SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE id = ?
     `;
@@ -21,7 +21,7 @@ export class UserModel {
   static async findByFirebaseUid(firebaseUid: string): Promise<UserType | null> {
     const query = `
       SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE firebase_uid = ?
     `;
@@ -33,7 +33,7 @@ export class UserModel {
     const normalized = String(email || '').trim().toLowerCase();
     const query = `
       SELECT id, name, email, password, role, tenant_id, avatar, is_active, firebase_uid,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE LOWER(TRIM(email)) = ?
     `;
@@ -54,11 +54,11 @@ export class UserModel {
 
     const query = hasFirebaseUid
       ? `INSERT INTO users (name, email, password, role, tenant_id, avatar, is_active,
-          preferred_categories, completed_course_ids, target_job_role_id, firebase_uid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id, firebase_uid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       : `INSERT INTO users (name, email, password, role, tenant_id, avatar, is_active,
-          preferred_categories, completed_course_ids, target_job_role_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+          preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     const baseParams = [
       userData.name,
@@ -70,6 +70,7 @@ export class UserModel {
       userData.is_active !== undefined ? userData.is_active : true,
       JSON.stringify(userData.preferred_categories || []),
       JSON.stringify(userData.completed_course_ids || []),
+      JSON.stringify(userData.roadmap_course_ids || []),
       userData.target_job_role_id || null,
     ];
 
@@ -109,8 +110,8 @@ export class UserModel {
       rawPassword.startsWith('$2a$') || rawPassword.startsWith('$2b$') ? rawPassword : await hashPassword(rawPassword);
     const query = `
       INSERT INTO users (name, email, password, firebase_uid, role, tenant_id, avatar, is_active,
-                        preferred_categories, completed_course_ids, target_job_role_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const result = await DatabaseHelper.insert(query, [
@@ -122,6 +123,7 @@ export class UserModel {
       role === 'superadmin' ? null : tenant_id,
       null,
       true,
+      JSON.stringify([]),
       JSON.stringify([]),
       JSON.stringify([]),
       null
@@ -141,7 +143,11 @@ export class UserModel {
     for (const [key, value] of Object.entries(updates)) {
       if (key === 'id' || key === 'created_at') continue; // Skip immutable fields
 
-      if (key === 'preferred_categories' || key === 'completed_course_ids') {
+      if (
+        key === 'preferred_categories' ||
+        key === 'completed_course_ids' ||
+        key === 'roadmap_course_ids'
+      ) {
         updateFields.push(`${key} = ?`);
         values.push(JSON.stringify(value || []));
       } else if (key === 'password' && value && typeof value === 'string' && !value.startsWith('$2a$') && !value.startsWith('$2b$')) {
@@ -228,7 +234,7 @@ export class UserModel {
                 ), 0)
                 ELSE 0
               END AS enrolled,
-              preferred_categories, completed_course_ids, target_job_role_id,
+              preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
               created_at, updated_at FROM users ${whereClause}`,
       page,
       limit
@@ -254,12 +260,12 @@ export class UserModel {
     const scoped = tenantId != null && tenantId > 0;
     const query = scoped
       ? `SELECT id, name, email, password, role, tenant_id, avatar, is_active,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE role = ? AND tenant_id = ? AND is_active = TRUE
       ORDER BY created_at DESC`
       : `SELECT id, name, email, password, role, tenant_id, avatar, is_active,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE role = ? AND is_active = TRUE
       ORDER BY created_at DESC`;
@@ -285,7 +291,7 @@ export class UserModel {
   static async findByResetToken(token: string): Promise<UserType | null> {
     const query = `
       SELECT id, name, email, password, role, avatar, is_active,
-             preferred_categories, completed_course_ids, target_job_role_id,
+             preferred_categories, completed_course_ids, roadmap_course_ids, target_job_role_id,
              created_at, updated_at
       FROM users WHERE password_reset_token = ? AND password_reset_expires > NOW()
     `;
