@@ -29,6 +29,8 @@ export type RoadmapRecommendResult = {
     category: string;
     reason: string;
   };
+  /** Whether OpenAI or local heuristic produced the ranking */
+  source: 'openai' | 'offline';
   aiSummary?: string;
 };
 
@@ -167,6 +169,7 @@ export function recommendRoadmapFallback(courses: RoadmapCourseInput[]): Roadmap
     },
     ranked: scored,
     studyOrder,
+    source: 'offline',
     aiSummary: `Based on your ${courses.length} selected courses, start with "${top.title}" then follow the suggested order. Courses in the same category were prioritized, with beginner-friendly titles ranked higher.`,
   };
 }
@@ -309,6 +312,7 @@ Rules:
       topPick,
       ranked,
       studyOrder,
+      source: 'openai',
       aiSummary: typeof parsed.answer === 'string' ? parsed.answer.trim() : undefined,
     };
   } catch (err) {

@@ -22,7 +22,8 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
       return;
     }
 
-    const rawIds = req.body?.courseIds ?? req.body?.course_ids;
+    const rawIds =
+      req.body?.courseIds ?? req.body?.course_ids ?? req.body?.selectedCourseIds;
     const courseIds = parseRecommendCourseIds(rawIds);
 
     if (courseIds == null) {

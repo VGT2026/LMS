@@ -95,6 +95,9 @@ router.post('/summarize', authenticate, summarizeContent);
  * Query (superadmin only): ?tenant_id=
  */
 router.post('/roadmap/recommend', authenticate, recommendCareerRoadmap);
+// Compatibility aliases (some frontend builds use hyphen or flat path)
+router.post('/roadmap-recommend', authenticate, recommendCareerRoadmap);
+router.post('/career-roadmap/recommend', authenticate, recommendCareerRoadmap);
 
 /**
  * POST /api/ai/generate-quiz
