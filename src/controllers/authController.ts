@@ -17,6 +17,8 @@ import {
   resolveTenantFilter,
 } from '../utils/tenantScope';
 import { formatPublicProfile } from '../utils/profileFormat';
+import { TenantModel } from '../models/Tenant';
+import { publicTenantFields } from '../utils/tenantDisplay';
 import { parseTargetJobRoleId } from '../utils/jsonArrayFields';
 import { validateRoadmapCourseIds } from '../utils/roadmapCourses';
 
@@ -225,7 +227,16 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    sendSuccess(res, formatPublicProfile(userProfile), 'Profile retrieved successfully');
+    let tenantName: string | undefined;
+    if (userProfile.tenant_id != null && Number(userProfile.tenant_id) > 0) {
+      const t = await TenantModel.findById(Number(userProfile.tenant_id));
+      tenantName = t?.name;
+    }
+    sendSuccess(
+      res,
+      { ...formatPublicProfile(userProfile), ...publicTenantFields(userProfile.tenant_id, tenantName) },
+      'Profile retrieved successfully'
+    );
   } catch (error) {
     console.error('Get profile error:', error);
     sendError(res, 'Internal server error', 500);

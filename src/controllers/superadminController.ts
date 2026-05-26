@@ -31,7 +31,7 @@ async function tryLinkFirebase(
 export const createAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = req.user!;
-    const { name, email, password, tenant_name, tenant_id: bodyTenantId } = req.body || {};
+    const { name, email, password, tenant_name } = req.body || {};
 
     if (!name || !email || !password) {
       sendError(res, 'Name, email, and password are required', 400);
@@ -62,22 +62,14 @@ export const createAdmin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    let tenantId: number;
-    const parsedTenantId = parseOptionalTenantId(bodyTenantId);
-    if (parsedTenantId != null) {
-      const existingTenant = await TenantModel.findById(parsedTenantId);
-      if (!existingTenant) {
-        sendError(res, 'Tenant not found', 404);
-        return;
-      }
-      tenantId = existingTenant.id;
-    } else if (tenant_name && String(tenant_name).trim()) {
-      const createdTenant = await TenantModel.createUniqueFromName(String(tenant_name));
-      tenantId = createdTenant.id;
-    } else {
-      const createdTenant = await TenantModel.createUniqueFromName(nameTrim);
-      tenantId = createdTenant.id;
+    const tenantNameTrim = String(tenant_name ?? '').trim();
+    if (tenantNameTrim.length < 2) {
+      sendError(res, 'tenant_name is required', 400);
+      return;
     }
+
+    const createdTenant = await TenantModel.createUniqueFromName(tenantNameTrim);
+    const tenantId = createdTenant.id;
 
     const firebaseUid = await tryLinkFirebase(emailNorm, String(password), nameTrim);
 

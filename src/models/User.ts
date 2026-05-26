@@ -100,8 +100,7 @@ export class UserModel {
     const role = data.role || 'student';
     const defaultTenantId = parseInt(process.env.DEFAULT_TENANT_ID || '1', 10);
     const tenant_id =
-      data.tenant_id ??
-      (Number.isFinite(defaultTenantId) && defaultTenantId > 0 ? defaultTenantId : 1);
+      data.tenant_id ?? (Number.isFinite(defaultTenantId) && defaultTenantId > 0 ? defaultTenantId : 1);
     const rawPassword =
       typeof data.password === 'string' && data.password.length > 0
         ? data.password
@@ -120,7 +119,7 @@ export class UserModel {
       hashedPassword,
       data.firebase_uid,
       role,
-      role === 'superadmin' ? null : tenant_id,
+      role === 'superadmin' ? null : tenant_id ?? null,
       null,
       true,
       JSON.stringify([]),

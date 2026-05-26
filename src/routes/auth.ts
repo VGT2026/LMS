@@ -78,6 +78,11 @@ const registerValidation = [
 
 const createAdminValidation = [
   body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2–50 characters'),
+  body('tenant_name')
+    .trim()
+    .notEmpty()
+    .isLength({ min: 2, max: 255 })
+    .withMessage('tenant_name must be at least 2 characters'),
   body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
 ];

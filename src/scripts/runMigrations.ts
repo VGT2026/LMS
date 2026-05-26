@@ -462,6 +462,11 @@ const runMigrations = async () => {
       console.log('⏭️ Default tenant exists id=', defaultTenantId);
     }
 
+    // Optional: rename legacy placeholder tenant so we never expose "Platform Default" to normal users.
+    await connection.query(
+      "UPDATE tenants SET name = 'Unnamed organization' WHERE LOWER(name) = 'platform default'"
+    );
+
     try {
       await connection.query(
         'ALTER TABLE users ADD COLUMN tenant_id INT NULL, ADD INDEX idx_users_tenant_role (tenant_id, role)'
