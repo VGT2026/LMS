@@ -25,7 +25,11 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
     const rawIds = req.body?.courseIds ?? req.body?.course_ids;
     const courseIds = parseRecommendCourseIds(rawIds);
 
-    if (!courseIds || courseIds.length === 0) {
+    if (courseIds == null) {
+      sendError(res, 'courseIds must be an array of valid positive integer course IDs', 400);
+      return;
+    }
+    if (courseIds.length === 0) {
       sendError(res, 'courseIds is required and must be a non-empty array of course IDs', 400);
       return;
     }
@@ -51,7 +55,7 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
     if (notFoundOrInaccessible.length > 0) {
       sendError(
         res,
-        `Invalid or inaccessible course IDs (not found, unpublished, or outside your organization): ${notFoundOrInaccessible.join(', ')}`,
+        `Invalid course IDs: ${notFoundOrInaccessible.join(', ')}`,
         400
       );
       return;

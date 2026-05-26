@@ -1,5 +1,3 @@
-import { askOpenAITutor } from './openaiService';
-
 export const ROADMAP_RECOMMEND_MAX_COURSES = 20;
 
 export type RoadmapCourseInput = {
@@ -21,13 +19,16 @@ export type RankedRoadmapCourse = {
 };
 
 export type RoadmapRecommendResult = {
+  answer: string;
+  recommendedCourseId: number;
+  ranked: RankedRoadmapCourse[];
+  studyOrder: number[];
   topPick: {
     courseId: number;
     title: string;
+    category: string;
     reason: string;
   };
-  ranked: RankedRoadmapCourse[];
-  studyOrder: string[];
   aiSummary?: string;
 };
 
@@ -53,7 +54,14 @@ export function parseRecommendCourseIds(raw: unknown): number[] | null {
   const out: number[] = [];
   const seen = new Set<number>();
   for (const item of raw) {
-    const n = typeof item === 'number' ? item : parseInt(String(item), 10);
+    let n: number;
+    if (typeof item === 'number') {
+      n = item;
+    } else {
+      const s = String(item).trim();
+      if (!/^\d+$/.test(s)) return null;
+      n = parseInt(s, 10);
+    }
     if (!Number.isFinite(n) || n <= 0) return null;
     if (!seen.has(n)) {
       seen.add(n);
@@ -139,27 +147,39 @@ export function recommendRoadmapFallback(courses: RoadmapCourseInput[]): Roadmap
   scored.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
   const top = scored[0];
 
+  const studyOrder = scored.map((c) => c.courseId);
+  const recommendedCourseId = top.courseId;
+  const answer = top.score >= 4
+    ? `Start with "${top.title}" first. It best matches the themes across your selected courses and is the strongest foundation to build on.`
+    : `Start with "${top.title}" first. It connects well with your other selections and sets you up for the next steps in your roadmap.`;
+
   return {
+    answer,
+    recommendedCourseId,
     topPick: {
       courseId: top.courseId,
       title: top.title,
+      category: top.category,
       reason:
         top.score >= 4
           ? `${top.title} is the best first step: ${top.reason}.`
           : `Start with ${top.title} — ${top.reason}.`,
     },
     ranked: scored,
-    studyOrder: scored.map((c) => c.title),
+    studyOrder,
     aiSummary: `Based on your ${courses.length} selected courses, start with "${top.title}" then follow the suggested order. Courses in the same category were prioritized, with beginner-friendly titles ranked higher.`,
   };
 }
 
 type OpenAiRankPayload = {
-  topPickCourseId?: number;
-  rankedCourseIds?: number[];
-  reasons?: Record<string, string>;
-  studyOrderTitles?: string[];
-  summary?: string;
+  answer?: string;
+  recommendedCourseId?: number;
+  studyOrder?: number[];
+  ranked?: Array<{
+    courseId: number;
+    reason: string;
+    score?: number;
+  }>;
 };
 
 async function recommendRoadmapWithOpenAI(
@@ -176,84 +196,120 @@ async function recommendRoadmapWithOpenAI(
     duration: c.duration || 'unknown',
   }));
 
-  const prompt = `You are a career learning advisor for an LMS. The student selected these real courses (IDs are database IDs — use only these):
+  const prompt = `You are a career learning advisor for an LMS.
 
 ${JSON.stringify(catalog, null, 2)}
 
 Return ONLY valid JSON with this shape:
 {
-  "topPickCourseId": <number>,
-  "rankedCourseIds": [<number>, ...],
-  "reasons": { "<courseId>": "<short reason>", ... },
-  "studyOrderTitles": ["<title>", ...],
-  "summary": "<one paragraph>"
+  "answer": "<2-3 sentence recommendation>",
+  "recommendedCourseId": <number>,
+  "studyOrder": [<number>, ...],
+  "ranked": [
+    { "courseId": <number>, "reason": "<short reason>", "score": <number> }
+  ]
 }
 
 Rules:
 - Use ONLY the course IDs provided.
-- rankedCourseIds must include every selected course exactly once.
-- Pick the best FIRST course to start (topPickCourseId).
-- studyOrderTitles must list titles in recommended study order.`;
+- ranked must include every selected course exactly once.
+- recommendedCourseId must be one of the provided course IDs.
+- studyOrder must list all provided course IDs exactly once in recommended study order.`;
 
   try {
-    const raw = await askOpenAITutor(
-      prompt,
-      'Respond with JSON only. No markdown.',
-      'Career Roadmap Planning'
-    );
-    const cleaned = raw
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```\s*$/, '')
-      .trim();
-    const parsed = JSON.parse(cleaned) as OpenAiRankPayload;
+    const apiKey = process.env.OPENAI_API_KEY;
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You return JSON only. Do not include markdown. No extra keys. Validate that ranked and studyOrder include all course IDs exactly once.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.warn('[RoadmapAI] OpenAI error response:', response.status, errorBody);
+      return null;
+    }
+
+    const data: any = await response.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+
+    const parsed = JSON.parse(raw) as OpenAiRankPayload;
 
     const byId = new Map(courses.map((c) => [c.id, c]));
     const fallback = recommendRoadmapFallback(courses);
 
-    const rankedIds =
-      Array.isArray(parsed.rankedCourseIds) && parsed.rankedCourseIds.length === courses.length
-        ? parsed.rankedCourseIds.map((id) => Number(id)).filter((id) => byId.has(id))
-        : fallback.ranked.map((r) => r.courseId);
+    const rankedRaw = Array.isArray(parsed.ranked) ? parsed.ranked : null;
+    const studyOrderRaw = Array.isArray(parsed.studyOrder) ? parsed.studyOrder : null;
+    const recommendedCourseId = Number(parsed.recommendedCourseId);
 
-    if (rankedIds.length !== courses.length) {
-      return null;
-    }
+    const allIds = new Set(courses.map((c) => c.id));
+    if (!Number.isFinite(recommendedCourseId) || !allIds.has(recommendedCourseId)) return null;
 
-    const ranked: RankedRoadmapCourse[] = rankedIds.map((id) => {
-      const course = byId.get(id)!;
-      const heuristic = fallback.ranked.find((r) => r.courseId === id);
-      const reasonKey = String(id);
-      const aiReason = parsed.reasons?.[reasonKey] || parsed.reasons?.[id as unknown as string];
+    const rankedIds = rankedRaw
+      ? rankedRaw.map((r) => Number(r.courseId)).filter((id) => allIds.has(id))
+      : [];
+    if (rankedRaw == null || rankedIds.length !== courses.length) return null;
+
+    // Validate studyOrder
+    const studyOrder = studyOrderRaw
+      ? studyOrderRaw.map((id) => Number(id)).filter((id) => allIds.has(id))
+      : [];
+    if (studyOrder.length !== courses.length) return null;
+
+    const ranked: RankedRoadmapCourse[] = rankedRaw!.map((r) => {
+      const course = byId.get(Number(r.courseId))!;
+      const heuristic = fallback.ranked.find((hr) => hr.courseId === course.id);
       return {
-        courseId: id,
+        courseId: course.id,
         title: course.title,
         category: course.category,
-        score: heuristic?.score ?? 5,
-        reason: typeof aiReason === 'string' && aiReason.trim() ? aiReason.trim() : heuristic?.reason || 'Recommended for your roadmap.',
+        score: Number.isFinite(r.score as number) ? Number(r.score) : heuristic?.score ?? 5,
+        reason:
+          typeof r.reason === 'string' && r.reason.trim().length > 0
+            ? r.reason.trim()
+            : heuristic?.reason || 'Recommended for your roadmap.',
       };
     });
 
-    const topId = Number(parsed.topPickCourseId);
-    const topPickCourse = byId.get(topId) || byId.get(ranked[0].courseId)!;
-    const topReason =
-      parsed.reasons?.[String(topPickCourse.id)] ||
-      ranked.find((r) => r.courseId === topPickCourse.id)?.reason ||
-      fallback.topPick.reason;
+    const topCourseFromMap = byId.get(recommendedCourseId);
+    const topPick = topCourseFromMap
+      ? {
+          courseId: topCourseFromMap.id,
+          title: topCourseFromMap.title,
+          category: topCourseFromMap.category,
+          reason: fallback.topPick.reason,
+        }
+      : fallback.topPick;
 
-    const studyOrder =
-      Array.isArray(parsed.studyOrderTitles) && parsed.studyOrderTitles.length > 0
-        ? parsed.studyOrderTitles.map(String)
-        : ranked.map((r) => r.title);
+    const answer =
+      typeof parsed.answer === 'string' && parsed.answer.trim().length > 0
+        ? parsed.answer.trim()
+        : fallback.answer;
 
     return {
-      topPick: {
-        courseId: topPickCourse.id,
-        title: topPickCourse.title,
-        reason: topReason,
-      },
+      answer,
+      recommendedCourseId,
+      topPick,
       ranked,
       studyOrder,
-      aiSummary: typeof parsed.summary === 'string' ? parsed.summary.trim() : undefined,
+      aiSummary: typeof parsed.answer === 'string' ? parsed.answer.trim() : undefined,
     };
   } catch (err) {
     console.warn('[RoadmapAI] OpenAI recommend failed, using fallback:', (err as Error)?.message ?? err);
