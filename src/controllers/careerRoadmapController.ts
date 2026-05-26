@@ -4,7 +4,11 @@ import { UserModel } from '../models/User';
 import { JobRoleModel } from '../models/JobRole';
 import { formatPublicProfile } from '../utils/profileFormat';
 import { parseIdStringArray, parseTargetJobRoleId } from '../utils/jsonArrayFields';
-import { validateRoadmapCourseIds, ROADMAP_MAX_COURSES } from '../utils/roadmapCourses';
+import {
+  validateRoadmapCourseIds,
+  ROADMAP_MAX_COURSES,
+  parseRouteCourseIdParam,
+} from '../utils/roadmapCourses';
 
 async function loadRoadmapUser(userId: number) {
   return UserModel.findById(userId);
@@ -99,9 +103,8 @@ export const appendRoadmapCourse = async (req: Request, res: Response): Promise<
       return;
     }
 
-    const courseIdParam = req.params.courseId ?? req.params.id;
-    const courseId = parseInt(String(Array.isArray(courseIdParam) ? courseIdParam[0] : courseIdParam), 10);
-    if (!Number.isFinite(courseId) || courseId <= 0) {
+    const courseId = parseRouteCourseIdParam(req.params.courseId ?? req.params.id);
+    if (courseId == null) {
       sendError(res, 'Invalid course ID', 400);
       return;
     }
@@ -157,8 +160,11 @@ export const removeRoadmapCourse = async (req: Request, res: Response): Promise<
       return;
     }
 
-    const courseIdParam = req.params.courseId ?? req.params.id;
-    const courseId = String(Array.isArray(courseIdParam) ? courseIdParam[0] : courseIdParam);
+    const courseId = parseRouteCourseIdParam(req.params.courseId ?? req.params.id);
+    if (courseId == null) {
+      sendError(res, 'Invalid course ID', 400);
+      return;
+    }
 
     const user = await loadRoadmapUser(authUser.userId);
     if (!user) {
@@ -166,8 +172,14 @@ export const removeRoadmapCourse = async (req: Request, res: Response): Promise<
       return;
     }
 
+    const idStr = String(courseId);
     const current = parseIdStringArray(user.roadmap_course_ids);
-    const next = current.filter((id) => id !== courseId && id !== String(parseInt(courseId, 10)));
+    if (!current.includes(idStr)) {
+      sendError(res, 'Course not on roadmap', 404);
+      return;
+    }
+
+    const next = current.filter((id) => id !== idStr);
 
     const updated = await UserModel.update(authUser.userId, { roadmap_course_ids: next });
     if (!updated) {

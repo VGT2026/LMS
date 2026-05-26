@@ -3,6 +3,15 @@ import { UserModel } from '../models/User';
 
 export const ROADMAP_MAX_COURSES = 50;
 
+/** Parse :courseId route param — rejects non-numeric values like "abc" or "12abc". */
+export function parseRouteCourseIdParam(raw: unknown): number | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(Array.isArray(raw) ? raw[0] : raw).trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function normalizeRoadmapCourseIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
     return [];
