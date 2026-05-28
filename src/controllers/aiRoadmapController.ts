@@ -94,11 +94,19 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
         ? Number(rows[0].tenant_id)
         : null);
 
-    const catalogRows = await CourseModel.findPublishableCatalog(catalogTenantId, {
-      excludeIds: courseIds,
-      limit: 80,
-    });
-    const catalog = catalogRows.map(mapRow);
+    let catalog: RoadmapCourseInput[] = [];
+    try {
+      const catalogRows = await CourseModel.findPublishableCatalog(catalogTenantId, {
+        excludeIds: courseIds,
+        limit: 80,
+      });
+      catalog = catalogRows.map(mapRow);
+    } catch (catalogErr) {
+      console.warn(
+        'recommendCareerRoadmap catalog load failed (continuing without related picks):',
+        (catalogErr as Error)?.message ?? catalogErr
+      );
+    }
 
     let result;
     try {

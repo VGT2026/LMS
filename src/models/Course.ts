@@ -365,13 +365,16 @@ export class CourseModel {
       params.push(...excludeIds);
     }
 
+    const hasUpdatedAt = await tableHasColumn('courses', 'updated_at');
+    const orderBy = hasUpdatedAt ? 'c.updated_at DESC, c.id DESC' : 'c.id DESC';
+
     const query = `
       SELECT c.id, c.title, c.description, c.category, c.thumbnail, c.duration, c.tenant_id,
              u.name AS instructor_name
       FROM courses c
       LEFT JOIN users u ON c.instructor_id = u.id
       WHERE ${conditions.join(' AND ')}
-      ORDER BY c.updated_at DESC, c.id DESC
+      ORDER BY ${orderBy}
       LIMIT ?
     `;
     params.push(limit);
