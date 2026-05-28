@@ -5,6 +5,7 @@ import { AuditLogModel } from '../models/AuditLog';
 import {
   buildRoadmapRecommendation,
   parseRecommendCourseIds,
+  recommendRoadmapFallback,
   ROADMAP_RECOMMEND_MAX_COURSES,
   RoadmapCourseInput,
 } from '../services/roadmapRecommendService';
@@ -85,7 +86,16 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
         thumbnail: r.thumbnail ?? null,
       }));
 
-    const result = await buildRoadmapRecommendation(courses);
+    let result;
+    try {
+      result = await buildRoadmapRecommendation(courses);
+    } catch (buildErr) {
+      console.warn(
+        'recommendCareerRoadmap build failed, using offline fallback:',
+        (buildErr as Error)?.message ?? buildErr
+      );
+      result = recommendRoadmapFallback(courses);
+    }
 
     await AuditLogModel.record({
       actor_id: authUser.userId,

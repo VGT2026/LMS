@@ -221,12 +221,17 @@ Rules:
 
   try {
     const apiKey = process.env.OPENAI_API_KEY;
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.OPENAI_ROADMAP_TIMEOUT_MS) || 20000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         response_format: { type: 'json_object' },
@@ -242,6 +247,7 @@ Rules:
         max_tokens: 800,
       }),
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorBody = await response.text();
