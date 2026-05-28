@@ -164,6 +164,8 @@ export class CourseModel {
     tenant_id?: number | null;
     /** Student: only courses they are enrolled in (within tenant when tenant_id set). */
     enrolled_user_id?: number;
+    /** When set, only return these course IDs (still applies other filters). */
+    course_ids?: number[];
   } = {}): Promise<{ courses: CourseType[]; total: number; page: number; limit: number }> {
     const {
       page = 1,
@@ -176,6 +178,7 @@ export class CourseModel {
       approval_status: approvalFilter,
       tenant_id: tenantFilter,
       enrolled_user_id,
+      course_ids: courseIdsFilter,
     } = options;
 
     const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
@@ -233,6 +236,14 @@ export class CourseModel {
     if (search) {
       whereConditions.push('(c.title LIKE ? OR c.description LIKE ?)');
       params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (courseIdsFilter != null && courseIdsFilter.length > 0) {
+      const unique = [...new Set(courseIdsFilter.filter((id) => id > 0))];
+      if (unique.length > 0) {
+        whereConditions.push(`c.id IN (${unique.map(() => '?').join(',')})`);
+        params.push(...unique);
+      }
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -308,7 +319,7 @@ export class CourseModel {
     const placeholders = unique.map(() => '?').join(',');
     const params: Array<number> = [...unique];
 
-    const conditions = [`c.id IN (${placeholders})`, 'c.is_active = TRUE'];
+    const conditions = [`c.id IN (${placeholders})`, '(c.is_active = TRUE OR c.is_active = 1)'];
     if (hasApprovalStatus) {
       conditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
     }
@@ -349,7 +360,7 @@ export class CourseModel {
     const excludeIds = [...new Set((options?.excludeIds ?? []).filter((id) => id > 0))];
 
     const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
-    const conditions = ['c.is_active = TRUE'];
+    const conditions = ['(c.is_active = TRUE OR c.is_active = 1)'];
     const params: Array<number> = [];
 
     if (hasApprovalStatus) {

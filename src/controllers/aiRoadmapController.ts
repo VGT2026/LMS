@@ -10,6 +10,70 @@ import {
   RoadmapCourseInput,
 } from '../services/roadmapRecommendService';
 import { isSuperadmin, parseOptionalTenantId, resolveTenantFilter } from '../utils/tenantScope';
+import { JWTPayload } from '../types';
+
+function mapRowToInput(r: {
+  id: number;
+  title: string;
+  description?: string | null;
+  category: string;
+  thumbnail?: string | null;
+  duration?: string | null;
+  instructor_name?: string | null;
+}): RoadmapCourseInput {
+  return {
+    id: Number(r.id),
+    title: r.title,
+    description: r.description ?? null,
+    category: r.category || 'General',
+    instructor_name: r.instructor_name ?? null,
+    duration: r.duration ?? null,
+    thumbnail: r.thumbnail ?? null,
+  };
+}
+
+/** Same visibility rules as GET /api/courses for this user (tenant, instructor, approved, active). */
+async function loadRecommendableCourses(
+  authUser: JWTPayload,
+  courseIds: number[],
+  tenantFilter: number | null
+): Promise<{ courses: RoadmapCourseInput[]; rows: Array<{ tenant_id?: number | null }> }> {
+  const listOptions: Parameters<typeof CourseModel.findAll>[0] = {
+    page: 1,
+    limit: Math.max(courseIds.length, 1),
+    course_ids: courseIds,
+    is_active: true,
+    approval_status: 'approved',
+  };
+
+  if (tenantFilter != null && tenantFilter > 0) {
+    listOptions.tenant_id = tenantFilter;
+  }
+  if (authUser.role === 'instructor') {
+    listOptions.instructor_id = authUser.userId;
+  }
+
+  const { courses } = await CourseModel.findAll(listOptions);
+  const orderMap = new Map(courseIds.map((id, idx) => [id, idx]));
+  const sorted = [...courses].sort(
+    (a, b) => (orderMap.get(Number(a.id)) ?? 0) - (orderMap.get(Number(b.id)) ?? 0)
+  );
+
+  return {
+    courses: sorted.map((r) =>
+      mapRowToInput({
+        id: Number(r.id),
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        thumbnail: r.thumbnail,
+        duration: r.duration,
+        instructor_name: (r as { instructor_name?: string }).instructor_name,
+      })
+    ),
+    rows: sorted.map((r) => ({ tenant_id: r.tenant_id })),
+  };
+}
 
 /**
  * POST /api/ai/roadmap/recommend
@@ -50,14 +114,14 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
       return;
     }
 
-    const rows = await CourseModel.findPublishableByIds(courseIds, tenantFilter);
-    const foundIds = new Set(rows.map((r) => Number(r.id)));
+    const { courses, rows } = await loadRecommendableCourses(authUser, courseIds, tenantFilter);
+    const foundIds = new Set(courses.map((c) => c.id));
 
     const notFoundOrInaccessible = courseIds.filter((id) => !foundIds.has(id));
     if (notFoundOrInaccessible.length > 0) {
       sendError(
         res,
-        `Invalid course IDs: ${notFoundOrInaccessible.join(', ')}`,
+        `Invalid course IDs: ${notFoundOrInaccessible.join(', ')} (courses must be active, approved, and in your catalog)`,
         400
       );
       return;
@@ -73,21 +137,6 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
       }
     }
 
-    const orderMap = new Map(courseIds.map((id, idx) => [id, idx]));
-    const mapRow = (r: (typeof rows)[number]): RoadmapCourseInput => ({
-      id: Number(r.id),
-      title: r.title,
-      description: r.description ?? null,
-      category: r.category,
-      instructor_name: r.instructor_name ?? null,
-      duration: r.duration ?? null,
-      thumbnail: r.thumbnail ?? null,
-    });
-
-    const courses: RoadmapCourseInput[] = [...rows]
-      .sort((a, b) => (orderMap.get(Number(a.id)) ?? 0) - (orderMap.get(Number(b.id)) ?? 0))
-      .map(mapRow);
-
     const catalogTenantId =
       tenantFilter ??
       (rows[0]?.tenant_id != null && Number(rows[0].tenant_id) > 0
@@ -100,7 +149,7 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
         excludeIds: courseIds,
         limit: 80,
       });
-      catalog = catalogRows.map(mapRow);
+      catalog = catalogRows.map((r) => mapRowToInput(r));
     } catch (catalogErr) {
       console.warn(
         'recommendCareerRoadmap catalog load failed (continuing without related picks):',
@@ -117,6 +166,10 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
         (buildErr as Error)?.message ?? buildErr
       );
       result = recommendRoadmapFallback(courses, catalog);
+    }
+
+    if (!Array.isArray(result.relatedCourses)) {
+      result.relatedCourses = [];
     }
 
     await AuditLogModel.record({
