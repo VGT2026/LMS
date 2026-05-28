@@ -1,4 +1,5 @@
 export const ROADMAP_RECOMMEND_MAX_COURSES = 20;
+export const ROADMAP_RELATED_MAX_COURSES = 6;
 
 export type RoadmapCourseInput = {
   id: number;
@@ -18,6 +19,11 @@ export type RankedRoadmapCourse = {
   reason: string;
 };
 
+export type RelatedRoadmapCourse = RankedRoadmapCourse & {
+  thumbnail?: string | null;
+  duration?: string | null;
+};
+
 export type RoadmapRecommendResult = {
   answer: string;
   recommendedCourseId: number;
@@ -29,6 +35,8 @@ export type RoadmapRecommendResult = {
     category: string;
     reason: string;
   };
+  /** Additional catalog courses related to the selection (not in courseIds input) */
+  relatedCourses: RelatedRoadmapCourse[];
   /** Whether OpenAI or local heuristic produced the ranking */
   source: 'openai' | 'offline';
   aiSummary?: string;
@@ -99,6 +107,75 @@ function categoryCounts(courses: RoadmapCourseInput[]): Map<string, number> {
   return counts;
 }
 
+function selectionKeywordPool(selected: RoadmapCourseInput[]): Set<string> {
+  const pool = tokenize(
+    selected.map((c) => `${c.title} ${c.description || ''} ${c.category}`).join(' ')
+  );
+  return pool;
+}
+
+function selectionCategories(selected: RoadmapCourseInput[]): Set<string> {
+  return new Set(
+    selected.map((c) => (c.category || 'General').trim().toLowerCase()).filter(Boolean)
+  );
+}
+
+/** Score catalog courses by relevance to the user's selection (excludes selected IDs). */
+export function scoreRelatedCatalogCourses(
+  selected: RoadmapCourseInput[],
+  catalog: RoadmapCourseInput[],
+  max = ROADMAP_RELATED_MAX_COURSES
+): RelatedRoadmapCourse[] {
+  if (selected.length === 0 || catalog.length === 0) return [];
+
+  const selectedIds = new Set(selected.map((c) => c.id));
+  const pool = selectionKeywordPool(selected);
+  const categories = selectionCategories(selected);
+
+  const scored = catalog
+    .filter((c) => !selectedIds.has(c.id))
+    .map((course) => {
+      const courseTokens = tokenize(
+        `${course.title} ${course.description || ''} ${course.category}`
+      );
+      let overlap = 0;
+      for (const t of courseTokens) {
+        if (pool.has(t)) overlap += 1;
+      }
+      const catKey = (course.category || 'General').trim().toLowerCase();
+      const categoryBoost = categories.has(catKey) ? 2.5 : 0;
+      const beginnerBoost = BEGINNER_PATTERN.test(`${course.title} ${course.description || ''}`)
+        ? 0.5
+        : 0;
+      const score = Number((overlap * 2 + categoryBoost + beginnerBoost).toFixed(2));
+
+      const reasonParts: string[] = [];
+      if (categoryBoost > 0) reasonParts.push(`extends your ${course.category} learning path`);
+      if (overlap >= 2) reasonParts.push('strong topic match with your selected courses');
+      else if (overlap > 0) reasonParts.push('complements themes in your selection');
+      if (reasonParts.length === 0) reasonParts.push('popular next step in your organization catalog');
+
+      return {
+        courseId: course.id,
+        title: course.title,
+        category: course.category,
+        score,
+        reason: reasonParts.join('; '),
+        thumbnail: course.thumbnail ?? null,
+        duration: course.duration ?? null,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+
+  const withScore = scored.filter((r) => r.score > 0);
+  if (withScore.length > 0) return withScore.slice(0, max);
+
+  // Same-category catalog picks when keyword overlap is weak
+  return scored
+    .filter((r) => categories.has((r.category || 'General').trim().toLowerCase()))
+    .slice(0, max);
+}
+
 function overlapScore(course: RoadmapCourseInput, others: RoadmapCourseInput[]): number {
   const tokens = tokenize(`${course.title} ${course.description || ''} ${course.category}`);
   if (tokens.size === 0 || others.length === 0) return 0;
@@ -118,8 +195,33 @@ function overlapScore(course: RoadmapCourseInput, others: RoadmapCourseInput[]):
   return comparisons > 0 ? totalShared / comparisons : 0;
 }
 
+function attachRelatedCourses(
+  base: Omit<RoadmapRecommendResult, 'relatedCourses'>,
+  selected: RoadmapCourseInput[],
+  catalog: RoadmapCourseInput[]
+): RoadmapRecommendResult {
+  const relatedCourses = scoreRelatedCatalogCourses(selected, catalog);
+  const relatedNote =
+    relatedCourses.length > 0
+      ? ` We also suggest ${relatedCourses.length} more course${relatedCourses.length > 1 ? 's' : ''} from your catalog that pair well with your picks.`
+      : '';
+  const answer = relatedNote
+    ? base.answer.endsWith('.')
+      ? `${base.answer}${relatedNote}`
+      : `${base.answer}.${relatedNote}`
+    : base.answer;
+  return {
+    ...base,
+    answer,
+    relatedCourses,
+  };
+}
+
 /** Heuristic ranking when OpenAI is unavailable (keyword overlap + category + beginner-friendly). */
-export function recommendRoadmapFallback(courses: RoadmapCourseInput[]): RoadmapRecommendResult {
+export function recommendRoadmapFallback(
+  courses: RoadmapCourseInput[],
+  catalog: RoadmapCourseInput[] = []
+): RoadmapRecommendResult {
   const counts = categoryCounts(courses);
   const scored = courses.map((course) => {
     const others = courses.filter((c) => c.id !== course.id);
@@ -155,23 +257,27 @@ export function recommendRoadmapFallback(courses: RoadmapCourseInput[]): Roadmap
     ? `Start with "${top.title}" first. It best matches the themes across your selected courses and is the strongest foundation to build on.`
     : `Start with "${top.title}" first. It connects well with your other selections and sets you up for the next steps in your roadmap.`;
 
-  return {
-    answer,
-    recommendedCourseId,
-    topPick: {
-      courseId: top.courseId,
-      title: top.title,
-      category: top.category,
-      reason:
-        top.score >= 4
-          ? `${top.title} is the best first step: ${top.reason}.`
-          : `Start with ${top.title} — ${top.reason}.`,
+  return attachRelatedCourses(
+    {
+      answer,
+      recommendedCourseId,
+      topPick: {
+        courseId: top.courseId,
+        title: top.title,
+        category: top.category,
+        reason:
+          top.score >= 4
+            ? `${top.title} is the best first step: ${top.reason}.`
+            : `Start with ${top.title} — ${top.reason}.`,
+      },
+      ranked: scored,
+      studyOrder,
+      source: 'offline',
+      aiSummary: `Based on your ${courses.length} selected courses, start with "${top.title}" then follow the suggested order. Courses in the same category were prioritized, with beginner-friendly titles ranked higher.`,
     },
-    ranked: scored,
-    studyOrder,
-    source: 'offline',
-    aiSummary: `Based on your ${courses.length} selected courses, start with "${top.title}" then follow the suggested order. Courses in the same category were prioritized, with beginner-friendly titles ranked higher.`,
-  };
+    courses,
+    catalog
+  );
 }
 
 type OpenAiRankPayload = {
@@ -183,14 +289,45 @@ type OpenAiRankPayload = {
     reason: string;
     score?: number;
   }>;
+  relatedCourseIds?: number[];
 };
 
+function mapRelatedFromIds(
+  ids: number[],
+  catalogById: Map<number, RoadmapCourseInput>,
+  selectedIds: Set<number>,
+  fallbackScored: RelatedRoadmapCourse[]
+): RelatedRoadmapCourse[] {
+  const out: RelatedRoadmapCourse[] = [];
+  const seen = new Set<number>();
+  for (const rawId of ids) {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || selectedIds.has(id) || seen.has(id)) continue;
+    const course = catalogById.get(id);
+    if (!course) continue;
+    seen.add(id);
+    const heuristic = fallbackScored.find((r) => r.courseId === id);
+    out.push({
+      courseId: course.id,
+      title: course.title,
+      category: course.category,
+      score: heuristic?.score ?? 5,
+      reason: heuristic?.reason ?? 'Recommended based on your course selection.',
+      thumbnail: course.thumbnail ?? null,
+      duration: course.duration ?? null,
+    });
+    if (out.length >= ROADMAP_RELATED_MAX_COURSES) break;
+  }
+  return out;
+}
+
 async function recommendRoadmapWithOpenAI(
-  courses: RoadmapCourseInput[]
+  courses: RoadmapCourseInput[],
+  catalog: RoadmapCourseInput[] = []
 ): Promise<RoadmapRecommendResult | null> {
   if (!process.env.OPENAI_API_KEY) return null;
 
-  const catalog = courses.map((c) => ({
+  const selectedPayload = courses.map((c) => ({
     id: c.id,
     title: c.title,
     category: c.category,
@@ -199,25 +336,49 @@ async function recommendRoadmapWithOpenAI(
     duration: c.duration || 'unknown',
   }));
 
+  const catalogById = new Map(catalog.map((c) => [c.id, c]));
+  const preScoredRelated = scoreRelatedCatalogCourses(courses, catalog);
+  const catalogForPrompt = preScoredRelated.length > 0
+    ? preScoredRelated.map((r) => {
+        const c = catalogById.get(r.courseId)!;
+        return {
+          id: c.id,
+          title: c.title,
+          category: c.category,
+          description: (c.description || '').slice(0, 200),
+        };
+      })
+    : catalog.slice(0, 30).map((c) => ({
+        id: c.id,
+        title: c.title,
+        category: c.category,
+        description: (c.description || '').slice(0, 200),
+      }));
+
   const prompt = `You are a career learning advisor for an LMS.
 
-${JSON.stringify(catalog, null, 2)}
+SELECTED COURSES (student already chose these — rank and order them):
+${JSON.stringify(selectedPayload, null, 2)}
+
+OTHER CATALOG COURSES (suggest up to ${ROADMAP_RELATED_MAX_COURSES} that complement the selection; do NOT repeat selected IDs):
+${JSON.stringify(catalogForPrompt, null, 2)}
 
 Return ONLY valid JSON with this shape:
 {
-  "answer": "<2-3 sentence recommendation>",
-  "recommendedCourseId": <number>,
-  "studyOrder": [<number>, ...],
+  "answer": "<2-3 sentence recommendation mentioning study order and any extra catalog picks>",
+  "recommendedCourseId": <number from SELECTED only>,
+  "studyOrder": [<selected course ids in order>],
   "ranked": [
     { "courseId": <number>, "reason": "<short reason>", "score": <number> }
-  ]
+  ],
+  "relatedCourseIds": [<up to ${ROADMAP_RELATED_MAX_COURSES} ids from OTHER CATALOG only>]
 }
 
 Rules:
-- Use ONLY the course IDs provided.
-- ranked must include every selected course exactly once.
-- recommendedCourseId must be one of the provided course IDs.
-- studyOrder must list all provided course IDs exactly once in recommended study order.`;
+- ranked must include every SELECTED course id exactly once.
+- recommendedCourseId must be one of the SELECTED course ids.
+- studyOrder must list all SELECTED course ids exactly once.
+- relatedCourseIds must use ONLY ids from OTHER CATALOG (not selected).`;
 
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -244,7 +405,7 @@ Rules:
           { role: 'user', content: prompt },
         ],
         temperature: 0.2,
-        max_tokens: 800,
+        max_tokens: 1200,
       }),
     });
     clearTimeout(timeoutId);
@@ -262,7 +423,8 @@ Rules:
     const parsed = JSON.parse(raw) as OpenAiRankPayload;
 
     const byId = new Map(courses.map((c) => [c.id, c]));
-    const fallback = recommendRoadmapFallback(courses);
+    const selectedIdSet = new Set(courses.map((c) => c.id));
+    const fallback = recommendRoadmapFallback(courses, catalog);
 
     const rankedRaw = Array.isArray(parsed.ranked) ? parsed.ranked : null;
     const studyOrderRaw = Array.isArray(parsed.studyOrder) ? parsed.studyOrder : null;
@@ -312,12 +474,29 @@ Rules:
         ? parsed.answer.trim()
         : fallback.answer;
 
+    const relatedRaw = Array.isArray(parsed.relatedCourseIds) ? parsed.relatedCourseIds : [];
+    let relatedCourses = mapRelatedFromIds(
+      relatedRaw,
+      catalogById,
+      selectedIdSet,
+      preScoredRelated
+    );
+    if (relatedCourses.length === 0) {
+      relatedCourses = preScoredRelated;
+    }
+
+    const relatedNote =
+      relatedCourses.length > 0
+        ? ` We also suggest ${relatedCourses.length} more course${relatedCourses.length > 1 ? 's' : ''} from your catalog.`
+        : '';
+
     return {
-      answer,
+      answer: answer.endsWith('.') ? `${answer}${relatedNote}` : `${answer}.${relatedNote}`,
       recommendedCourseId,
       topPick,
       ranked,
       studyOrder,
+      relatedCourses,
       source: 'openai',
       aiSummary: typeof parsed.answer === 'string' ? parsed.answer.trim() : undefined,
     };
@@ -328,8 +507,9 @@ Rules:
 }
 
 export async function buildRoadmapRecommendation(
-  courses: RoadmapCourseInput[]
+  courses: RoadmapCourseInput[],
+  catalog: RoadmapCourseInput[] = []
 ): Promise<RoadmapRecommendResult> {
-  const fromAi = await recommendRoadmapWithOpenAI(courses);
-  return fromAi ?? recommendRoadmapFallback(courses);
+  const fromAi = await recommendRoadmapWithOpenAI(courses, catalog);
+  return fromAi ?? recommendRoadmapFallback(courses, catalog);
 }

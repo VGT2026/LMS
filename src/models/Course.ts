@@ -329,6 +329,56 @@ export class CourseModel {
     return DatabaseHelper.findMany(query, params);
   }
 
+  /** Published catalog for roadmap “related course” suggestions (tenant-scoped, excludes selected IDs). */
+  static async findPublishableCatalog(
+    tenantId?: number | null,
+    options?: { excludeIds?: number[]; limit?: number }
+  ): Promise<
+    Array<{
+      id: number;
+      title: string;
+      description?: string | null;
+      category: string;
+      thumbnail?: string | null;
+      duration?: string | null;
+      instructor_name?: string | null;
+      tenant_id?: number | null;
+    }>
+  > {
+    const limit = Math.min(Math.max(options?.limit ?? 80, 1), 200);
+    const excludeIds = [...new Set((options?.excludeIds ?? []).filter((id) => id > 0))];
+
+    const hasApprovalStatus = await tableHasColumn('courses', 'approval_status');
+    const conditions = ['c.is_active = TRUE'];
+    const params: Array<number> = [];
+
+    if (hasApprovalStatus) {
+      conditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
+    }
+    if (tenantId != null && tenantId > 0) {
+      conditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+      params.push(tenantId);
+    }
+    if (excludeIds.length > 0) {
+      const placeholders = excludeIds.map(() => '?').join(',');
+      conditions.push(`c.id NOT IN (${placeholders})`);
+      params.push(...excludeIds);
+    }
+
+    const query = `
+      SELECT c.id, c.title, c.description, c.category, c.thumbnail, c.duration, c.tenant_id,
+             u.name AS instructor_name
+      FROM courses c
+      LEFT JOIN users u ON c.instructor_id = u.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY c.updated_at DESC, c.id DESC
+      LIMIT ?
+    `;
+    params.push(limit);
+
+    return DatabaseHelper.findMany(query, params);
+  }
+
   /** Ensure course IDs exist and belong to tenant (when tenantId set). */
   static async validateIdsForTenant(
     courseIds: number[],

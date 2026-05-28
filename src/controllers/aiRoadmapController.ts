@@ -74,27 +74,41 @@ export const recommendCareerRoadmap = async (req: Request, res: Response): Promi
     }
 
     const orderMap = new Map(courseIds.map((id, idx) => [id, idx]));
+    const mapRow = (r: (typeof rows)[number]): RoadmapCourseInput => ({
+      id: Number(r.id),
+      title: r.title,
+      description: r.description ?? null,
+      category: r.category,
+      instructor_name: r.instructor_name ?? null,
+      duration: r.duration ?? null,
+      thumbnail: r.thumbnail ?? null,
+    });
+
     const courses: RoadmapCourseInput[] = [...rows]
       .sort((a, b) => (orderMap.get(Number(a.id)) ?? 0) - (orderMap.get(Number(b.id)) ?? 0))
-      .map((r) => ({
-        id: Number(r.id),
-        title: r.title,
-        description: r.description ?? null,
-        category: r.category,
-        instructor_name: r.instructor_name ?? null,
-        duration: r.duration ?? null,
-        thumbnail: r.thumbnail ?? null,
-      }));
+      .map(mapRow);
+
+    const catalogTenantId =
+      tenantFilter ??
+      (rows[0]?.tenant_id != null && Number(rows[0].tenant_id) > 0
+        ? Number(rows[0].tenant_id)
+        : null);
+
+    const catalogRows = await CourseModel.findPublishableCatalog(catalogTenantId, {
+      excludeIds: courseIds,
+      limit: 80,
+    });
+    const catalog = catalogRows.map(mapRow);
 
     let result;
     try {
-      result = await buildRoadmapRecommendation(courses);
+      result = await buildRoadmapRecommendation(courses, catalog);
     } catch (buildErr) {
       console.warn(
         'recommendCareerRoadmap build failed, using offline fallback:',
         (buildErr as Error)?.message ?? buildErr
       );
-      result = recommendRoadmapFallback(courses);
+      result = recommendRoadmapFallback(courses, catalog);
     }
 
     await AuditLogModel.record({
