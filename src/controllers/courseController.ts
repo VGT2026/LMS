@@ -6,55 +6,30 @@ import { EnrollmentModel } from '../models/Enrollment';
 import { Course } from '../types';
 import { parsePageLimit } from '../utils/queryParse';
 import {
-  assertCourseInTenant,
   assertUserInTenant,
+  forbidClientTenantOverride,
   getJwtTenantId,
-  isSuperadmin,
   parseOptionalTenantId,
   resolveTenantFilter,
 } from '../utils/tenantScope';
+import {
+  applyCourseListTenantScope,
+  courseListScopeFromUser,
+  denyAnonymousCourseAccess,
+  denyCrossTenantCourse,
+} from '../utils/courseTenantScope';
+import { formatCourseForApi, formatCoursesForApi } from '../utils/courseFormat';
 
-function denyCrossTenantCourse(
-  req: Request,
-  res: Response,
-  course: { tenant_id?: number | null }
-): boolean {
-  const user = req.user;
-  if (!user || isSuperadmin(user.role)) return false;
-  if (!assertCourseInTenant(user, course)) {
-    sendError(res, 'Course not found', 404);
-    return true;
-  }
-  return false;
-}
-
-function applyCourseListTenantScope(
+function defaultPublicCatalogFilters(
   req: Request,
   options: Parameters<typeof CourseModel.findAll>[0]
 ): Parameters<typeof CourseModel.findAll>[0] {
-  const user = req.user;
-  if (!user) return options;
-
-  const tenantId = resolveTenantFilter(user, parseOptionalTenantId(req.query.tenant_id));
-  if (tenantId != null) {
-    options = { ...options, tenant_id: tenantId };
-  }
-
-  if (user.role === 'instructor') {
-    options = { ...options, instructor_id: user.userId };
-  } else if (user.role === 'student') {
-    const enrolledOnly =
-      req.query.enrolled_only === 'true' || req.query.enrolled_only === '1';
-    if (enrolledOnly) {
-      options = { ...options, enrolled_user_id: user.userId };
-    }
-    const jwtTenant = getJwtTenantId(user);
-    if (jwtTenant != null) {
-      options = { ...options, tenant_id: jwtTenant };
-    }
-  }
-
-  return options;
+  if (req.user) return options;
+  const incRaw = Array.isArray(req.query.include_inactive)
+    ? req.query.include_inactive[0]
+    : req.query.include_inactive;
+  if (incRaw === 'true') return options;
+  return { ...options, is_active: true, approval_status: 'approved' };
 }
 
 export const getAllCourses = async (req: Request, res: Response): Promise<void> => {
@@ -105,11 +80,21 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
 
     const scoped = applyCourseListTenantScope(
       req,
-      options as Parameters<typeof CourseModel.findAll>[0]
+      defaultPublicCatalogFilters(
+        req,
+        options as Parameters<typeof CourseModel.findAll>[0]
+      )
     );
     const result = await CourseModel.findAll(scoped);
 
-    sendPagination(res, result.courses, result.page, result.limit, result.total, 'Courses retrieved successfully');
+    sendPagination(
+      res,
+      formatCoursesForApi(result.courses),
+      result.page,
+      result.limit,
+      result.total,
+      'Courses retrieved successfully'
+    );
   } catch (error) {
     console.error('Get all courses error:', error);
     sendError(res, 'Internal server error', 500);
@@ -130,7 +115,7 @@ export const getPendingCourses = async (req: Request, res: Response): Promise<vo
 
     sendPagination(
       res,
-      result.courses,
+      formatCoursesForApi(result.courses),
       result.page,
       result.limit,
       result.total,
@@ -158,7 +143,7 @@ export const getCourseById = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (denyCrossTenantCourse(req, res, course)) return;
+    if (denyAnonymousCourseAccess(req, res, course)) return;
 
     // Students and unauthenticated users cannot access deactivated courses
     if (!course.is_active) {
@@ -178,7 +163,7 @@ export const getCourseById = async (req: Request, res: Response): Promise<void> 
       }
     }
 
-    sendSuccess(res, course, 'Course retrieved successfully');
+    sendSuccess(res, formatCourseForApi(course), 'Course retrieved successfully');
   } catch (error) {
     console.error('Get course by ID error:', error);
     sendError(res, 'Internal server error', 500);
@@ -192,6 +177,8 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
       sendError(res, 'Authentication required', 401);
       return;
     }
+
+    if (forbidClientTenantOverride(req, res)) return;
 
     const { title, description, instructor_id: instructorIdParam, instructor_name, category, thumbnail, duration, price, level }: {
       title: string;
@@ -293,7 +280,7 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
 
     const newCourse = await CourseModel.create(courseData);
 
-    sendSuccess(res, newCourse, 'Course created successfully', 201);
+    sendSuccess(res, formatCourseForApi(newCourse), 'Course created successfully', 201);
   } catch (error) {
     console.error('Create course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -352,7 +339,7 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    sendSuccess(res, updatedCourse, 'Course updated successfully');
+    sendSuccess(res, formatCourseForApi(updatedCourse), 'Course updated successfully');
   } catch (error) {
     console.error('Update course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -403,7 +390,7 @@ export const assignInstructor = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    sendSuccess(res, updatedCourse, 'Instructor assigned successfully');
+    sendSuccess(res, formatCourseForApi(updatedCourse!), 'Instructor assigned successfully');
   } catch (error) {
     console.error('Assign instructor error:', error);
     sendError(res, 'Internal server error', 500);
@@ -444,7 +431,11 @@ export const approveCourse = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    sendSuccess(res, updatedCourse, status === 'approved' ? 'Course approved. Instructor can now add modules.' : 'Course rejected.');
+    sendSuccess(
+      res,
+      formatCourseForApi(updatedCourse!),
+      status === 'approved' ? 'Course approved. Instructor can now add modules.' : 'Course rejected.'
+    );
   } catch (error) {
     console.error('Approve course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -495,7 +486,7 @@ export const publishCourse = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    sendSuccess(res, updatedCourse, 'Course published successfully');
+    sendSuccess(res, formatCourseForApi(updatedCourse!), 'Course published successfully');
   } catch (error) {
     console.error('Publish course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -531,7 +522,7 @@ export const unpublishCourse = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    sendSuccess(res, updatedCourse, 'Course unpublished (draft) successfully');
+    sendSuccess(res, formatCourseForApi(updatedCourse!), 'Course unpublished (draft) successfully');
   } catch (error) {
     console.error('Unpublish course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -578,7 +569,11 @@ export const enrollInCourse = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    sendSuccess(res, { enrollment, course }, 'Successfully enrolled in course');
+    sendSuccess(
+      res,
+      { enrollment, course: formatCourseForApi(course) },
+      'Successfully enrolled in course'
+    );
   } catch (error) {
     console.error('Enroll in course error:', error);
     sendError(res, 'Internal server error', 500);
@@ -620,7 +615,11 @@ export const toggleCourseStatus = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    sendSuccess(res, updatedCourse, `Course ${newStatus ? 'published' : 'unpublished'} successfully`);
+    sendSuccess(
+      res,
+      formatCourseForApi(updatedCourse!),
+      `Course ${newStatus ? 'published' : 'unpublished'} successfully`
+    );
   } catch (error) {
     console.error('Toggle course status error:', error);
     sendError(res, 'Internal server error', 500);
@@ -656,7 +655,11 @@ export const getInstructors = async (req: Request, res: Response): Promise<void>
 
 export const getAllCategories = async (req: Request, res: Response): Promise<void> => {
   try {
-    const categories = await CourseModel.getAllCategories();
+    const scope = courseListScopeFromUser(
+      req.user,
+      parseOptionalTenantId(req.query.tenant_id)
+    );
+    const categories = await CourseModel.getAllCategories(scope);
 
     sendSuccess(res, categories, 'Categories retrieved successfully');
   } catch (error) {

@@ -1,3 +1,4 @@
+import { formatCourseForApi } from '../utils/courseFormat';
 import DatabaseHelper from '../utils/database';
 
 export interface EnrollmentRow {
@@ -88,47 +89,52 @@ export class EnrollmentModel {
     return this.findByUserAndCourse(userId, courseId);
   }
 
-  static async getEnrolledCoursesWithDetails(userId: number): Promise<Array<{
+  static async getEnrolledCoursesWithDetails(
+    userId: number,
+    options?: { tenantId?: number | null }
+  ): Promise<Array<{
     id: number;
     title: string;
     description?: string;
     category: string;
     thumbnail?: string;
     instructor?: string;
+    tenant_id: number | null;
+    tenant_name?: string;
     progress_percentage: number;
     completed_at: Date | null;
     enrolled_at: Date;
     module_count?: number;
     students?: number;
+    is_active?: boolean;
   }>> {
     const enrollments = await this.findByUser(userId);
     if (enrollments.length === 0) return [];
 
     const { CourseModel } = await import('./Course');
     const result: Array<any> = [];
+    const tenantId = options?.tenantId;
 
     for (const e of enrollments) {
       const course = await CourseModel.findById(e.course_id);
-      if (course) {
-        const [moduleCount, students] = await Promise.all([
-          DatabaseHelper.count('course_modules', 'course_id = ?', [e.course_id]),
-          this.countByCourse(e.course_id),
-        ]);
-        result.push({
-          id: course.id,
-          title: course.title,
-          description: course.description,
-          category: course.category,
-          thumbnail: course.thumbnail,
-          instructor: (course as any).instructor,
-          progress_percentage: e.progress_percentage,
-          completed_at: e.completed_at,
-          enrolled_at: e.enrolled_at,
-          module_count: moduleCount,
-          students,
-          is_active: course.is_active !== false,
-        });
+      if (!course) continue;
+      if (tenantId != null && tenantId > 0 && course.tenant_id != null && Number(course.tenant_id) !== tenantId) {
+        continue;
       }
+      const formatted = formatCourseForApi(course);
+      const [moduleCount, students] = await Promise.all([
+        DatabaseHelper.count('course_modules', 'course_id = ?', [e.course_id]),
+        this.countByCourse(e.course_id),
+      ]);
+      result.push({
+        ...formatted,
+        progress_percentage: e.progress_percentage,
+        completed_at: e.completed_at,
+        enrolled_at: e.enrolled_at,
+        module_count: moduleCount,
+        students,
+        is_active: course.is_active !== false,
+      });
     }
 
     return result;

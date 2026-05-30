@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 import { QuizModel } from '../models/Quiz';
 import { CourseModel } from '../models/Course';
+import { cannotAccessCourse } from '../utils/courseTenantScope';
 
 /** GET /api/quizzes - List quizzes (student: enrolled courses; instructor: own courses) */
 export const listQuizzes = async (req: Request, res: Response): Promise<void> => {
@@ -19,7 +20,7 @@ export const listQuizzes = async (req: Request, res: Response): Promise<void> =>
       const courseId = req.query.courseId ? Number(req.query.courseId) : null;
       if (courseId) {
         const course = await CourseModel.findById(courseId);
-        if (course && (course as any).instructor_id === user.userId) {
+        if (course && !cannotAccessCourse(req, course) && (course as any).instructor_id === user.userId) {
           quizzes = await QuizModel.findByCourse(courseId);
         } else {
           quizzes = [];
@@ -40,7 +41,12 @@ export const listQuizzes = async (req: Request, res: Response): Promise<void> =>
     } else if (user.role === 'admin' || user.role === 'superadmin') {
       const { courseId } = req.query;
       if (courseId) {
-        quizzes = await QuizModel.findByCourse(Number(courseId));
+        const course = await CourseModel.findById(Number(courseId));
+        if (course && !cannotAccessCourse(req, course)) {
+          quizzes = await QuizModel.findByCourse(Number(courseId));
+        } else {
+          quizzes = [];
+        }
       } else {
         quizzes = [];
       }
@@ -105,6 +111,10 @@ export const createQuiz = async (req: Request, res: Response): Promise<void> => 
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (cannotAccessCourse(req, course)) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
 
     if (user.role === 'instructor' && course.instructor_id !== user.userId) {
       sendError(res, 'You can only add quizzes to your own courses', 403);
@@ -151,6 +161,10 @@ export const updateQuiz = async (req: Request, res: Response): Promise<void> => 
 
     const course = await CourseModel.findById(existing.course_id);
     if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (cannotAccessCourse(req, course)) {
       sendError(res, 'Course not found', 404);
       return;
     }
@@ -216,6 +230,10 @@ export const deleteQuiz = async (req: Request, res: Response): Promise<void> => 
 
     const course = await CourseModel.findById(existing.course_id);
     if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (cannotAccessCourse(req, course)) {
       sendError(res, 'Course not found', 404);
       return;
     }

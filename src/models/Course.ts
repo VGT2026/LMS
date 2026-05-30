@@ -12,12 +12,14 @@ export class CourseModel {
     const query = `
       SELECT c.id, c.title, c.description, c.instructor_id, c.tenant_id, c.category, c.thumbnail,
              c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
-             u.name as instructor_name, u.email as instructor_email
+             u.name as instructor_name, u.email as instructor_email,
+             tn.name as tenant_name, tn.slug as tenant_slug
       FROM courses c
       LEFT JOIN users u ON c.instructor_id = u.id
+      LEFT JOIN tenants tn ON c.tenant_id = tn.id
       WHERE c.id = ?
     `;
-    const course = await DatabaseHelper.findOne<CourseType & { instructor_name?: string; instructor_email?: string }>(query, [id]);
+    const course = await DatabaseHelper.findOne<CourseType & { instructor_name?: string; instructor_email?: string; tenant_name?: string; tenant_slug?: string }>(query, [id]);
 
     if (course) {
       return {
@@ -161,7 +163,11 @@ export class CourseModel {
     search?: string;
     /** Narrow by workflow state (ignored if approval_status column is missing → empty page) */
     approval_status?: CourseApprovalStatus;
+    /** Narrow by tenant. With include_platform_wide, also returns tenant_id IS NULL rows. */
     tenant_id?: number | null;
+    platform_wide_only?: boolean;
+    tenant_strict?: boolean;
+    include_platform_wide?: boolean;
     /** Student: only courses they are enrolled in (within tenant when tenant_id set). */
     enrolled_user_id?: number;
     /** When set, only return these course IDs (still applies other filters). */
@@ -177,6 +183,9 @@ export class CourseModel {
       search,
       approval_status: approvalFilter,
       tenant_id: tenantFilter,
+      platform_wide_only,
+      tenant_strict,
+      include_platform_wide,
       enrolled_user_id,
       course_ids: courseIdsFilter,
     } = options;
@@ -204,8 +213,16 @@ export class CourseModel {
       params.push(instructor_id);
     }
 
-    if (tenantFilter != null && tenantFilter > 0) {
-      whereConditions.push('c.tenant_id = ?');
+    if (platform_wide_only) {
+      whereConditions.push('c.tenant_id IS NULL');
+    } else if (tenantFilter != null && tenantFilter > 0) {
+      const strict = tenant_strict === true;
+      const includeGlobal = include_platform_wide !== false && !strict;
+      if (includeGlobal) {
+        whereConditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+      } else {
+        whereConditions.push('c.tenant_id = ?');
+      }
       params.push(tenantFilter);
     }
 
@@ -259,17 +276,19 @@ export class CourseModel {
       `SELECT c.id, c.title, c.description, c.instructor_id, c.tenant_id, c.category, c.thumbnail,
               c.duration, c.price, c.level, c.is_active, ${approvalProjection}, c.created_at, c.updated_at,
               u.name as instructor_name, u.email as instructor_email,
+              tn.name as tenant_name, tn.slug as tenant_slug,
               (SELECT COUNT(*) FROM course_modules WHERE course_id = c.id) as module_count,
               (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as students
        FROM courses c
        LEFT JOIN users u ON c.instructor_id = u.id
+       LEFT JOIN tenants tn ON c.tenant_id = tn.id
        ${whereClause}`,
       page,
       limit,
       'c.created_at DESC'
     );
 
-    const courses = await DatabaseHelper.findMany<CourseType & { instructor_name?: string; instructor_email?: string; module_count?: number; students?: number }>(
+    const courses = await DatabaseHelper.findMany<CourseType & { instructor_name?: string; instructor_email?: string; tenant_name?: string; tenant_slug?: string; module_count?: number; students?: number }>(
       paginatedQuery,
       [...params, ...paginatedParams]
     );
@@ -331,9 +350,10 @@ export class CourseModel {
 
     const query = `
       SELECT c.id, c.title, c.description, c.category, c.thumbnail, c.duration, c.tenant_id,
-             u.name AS instructor_name
+             u.name AS instructor_name, tn.name AS tenant_name, tn.slug AS tenant_slug
       FROM courses c
       LEFT JOIN users u ON c.instructor_id = u.id
+      LEFT JOIN tenants tn ON c.tenant_id = tn.id
       WHERE ${conditions.join(' AND ')}
     `;
 
@@ -381,9 +401,10 @@ export class CourseModel {
 
     const query = `
       SELECT c.id, c.title, c.description, c.category, c.thumbnail, c.duration, c.tenant_id,
-             u.name AS instructor_name
+             u.name AS instructor_name, tn.name AS tenant_name, tn.slug AS tenant_slug
       FROM courses c
       LEFT JOIN users u ON c.instructor_id = u.id
+      LEFT JOIN tenants tn ON c.tenant_id = tn.id
       WHERE ${conditions.join(' AND ')}
       ORDER BY ${orderBy}
       LIMIT ?
@@ -503,10 +524,43 @@ export class CourseModel {
     };
   }
 
-  // Get all unique categories
-  static async getAllCategories(): Promise<string[]> {
-    const query = 'SELECT DISTINCT category FROM courses WHERE category IS NOT NULL AND category != "" ORDER BY category ASC';
-    const results = await DatabaseHelper.findMany<{ category: string }>(query);
-    return results.map(r => r.category).filter(cat => cat && cat.trim());
+  // Get all unique categories (optionally tenant-scoped)
+  static async getAllCategories(options: {
+    tenant_id?: number | null;
+    platform_wide_only?: boolean;
+    tenant_strict?: boolean;
+    include_platform_wide?: boolean;
+  } = {}): Promise<string[]> {
+    const {
+      tenant_id: tenantFilter,
+      platform_wide_only,
+      tenant_strict,
+      include_platform_wide,
+    } = options;
+
+    const conditions = ['c.category IS NOT NULL', `c.category != ''`];
+    const params: unknown[] = [];
+
+    if (platform_wide_only) {
+      conditions.push('c.tenant_id IS NULL');
+    } else if (tenantFilter != null && tenantFilter > 0) {
+      const strict = tenant_strict === true;
+      const includeGlobal = include_platform_wide !== false && !strict;
+      if (includeGlobal) {
+        conditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+      } else {
+        conditions.push('c.tenant_id = ?');
+      }
+      params.push(tenantFilter);
+    }
+
+    const query = `
+      SELECT DISTINCT c.category
+      FROM courses c
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY c.category ASC
+    `;
+    const results = await DatabaseHelper.findMany<{ category: string }>(query, params);
+    return results.map((r) => r.category).filter((cat) => cat && cat.trim());
   }
 }

@@ -3,6 +3,7 @@ import { sendSuccess, sendError } from '../utils/response';
 import { AssignmentModel } from '../models/Assignment';
 import { SubmissionModel } from '../models/Submission';
 import { CourseModel } from '../models/Course';
+import { cannotAccessCourse } from '../utils/courseTenantScope';
 
 /** GET /api/assignments - List assignments for current user (student: enrolled courses only; instructor: own courses) */
 export const listAssignments = async (req: Request, res: Response): Promise<void> => {
@@ -27,7 +28,12 @@ export const listAssignments = async (req: Request, res: Response): Promise<void
     } else if (user.role === 'admin' || user.role === 'superadmin') {
       const { courseId } = req.query;
       if (courseId) {
-        assignments = await AssignmentModel.findByCourse(Number(courseId));
+        const course = await CourseModel.findById(Number(courseId));
+        if (course && !cannotAccessCourse(req, course)) {
+          assignments = await AssignmentModel.findByCourse(Number(courseId));
+        } else {
+          assignments = [];
+        }
       } else {
         assignments = [];
       }
@@ -68,6 +74,12 @@ export const getAssignmentById = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    const course = await CourseModel.findById(assignment.course_id);
+    if (!course || cannotAccessCourse(req, course)) {
+      sendError(res, 'Assignment not found', 404);
+      return;
+    }
+
     sendSuccess(res, assignment, 'Assignment retrieved');
   } catch (err) {
     console.error('Get assignment error:', err);
@@ -94,6 +106,10 @@ export const createAssignment = async (req: Request, res: Response): Promise<voi
     const courseId = Number(course_id);
     const course = await CourseModel.findById(courseId);
     if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (cannotAccessCourse(req, course)) {
       sendError(res, 'Course not found', 404);
       return;
     }
@@ -145,6 +161,10 @@ export const publishAssignment = async (req: Request, res: Response): Promise<vo
       sendError(res, 'Course not found', 404);
       return;
     }
+    if (cannotAccessCourse(req, course)) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
     if (user.role === 'instructor' && course.instructor_id !== user.userId) {
       sendError(res, 'You can only publish assignments for your own courses', 403);
       return;
@@ -186,6 +206,12 @@ export const submitAssignment = async (req: Request, res: Response): Promise<voi
     }
     if (!assignment.is_published) {
       sendError(res, 'This assignment is not yet published', 403);
+      return;
+    }
+
+    const course = await CourseModel.findById(assignment.course_id);
+    if (!course || cannotAccessCourse(req, course)) {
+      sendError(res, 'Assignment not found', 404);
       return;
     }
 

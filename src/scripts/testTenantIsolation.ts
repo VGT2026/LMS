@@ -125,14 +125,28 @@ async function main(): Promise<void> {
   );
   assert(createCourseA.status === 201 || createCourseA.status === 200, `create course A: ${createCourseA.json.message}`);
   const courseA = data(createCourseA.json) as Json;
-  console.log('✓ 1. Admin A created instructor + course');
+  assert(courseA.tenant_id != null, 'course A must include tenant_id');
+  assert(Number(courseA.tenant_id) === Number(userA.tenant_id), 'course A tenant must match admin A org');
+  console.log('✓ 1. Admin A created instructor + course with tenant_id');
 
-  const listB = await request(COURSES, 'GET', '/', undefined, tokenB);
+  const listA = await request(COURSES, 'GET', `/?tenant_id=${userA.tenant_id}`, undefined, tokenA);
+  assert(listA.status === 200, `admin A list courses: ${listA.json.message}`);
+  const rowsA = (data(listA.json) as Json[]) || [];
+  assert(rowsA.some((c) => c.id === courseA.id), 'Admin A must see own course in tenant-scoped list');
+  const rowA = rowsA.find((c) => c.id === courseA.id) as Json;
+  assert(rowA?.tenant_name != null || rowA?.tenant_id != null, 'course row must include tenant fields');
+  console.log('✓ course list includes tenant_id / tenant_name');
+
+  const listB = await request(COURSES, 'GET', `/?tenant_id=${userB.tenant_id}`, undefined, tokenB);
   assert(listB.status === 200, `admin B list courses: ${listB.json.message}`);
   const rowsB = (data(listB.json) as Json[]) || [];
   const leaked = rowsB.some((c) => c.id === courseA.id || String(c.title).includes(`Course A ${ts}`));
   assert(!leaked, 'Admin B must not see Admin A courses');
   console.log('✓ 2. Admin B GET /courses does not see Admin A courses');
+
+  const crossFetch = await request(COURSES, 'GET', `/${courseA.id}`, undefined, tokenB);
+  assert(crossFetch.status === 404, `Admin B fetch course A by id expected 404, got ${crossFetch.status}`);
+  console.log('✓ 3. Admin B cannot GET /courses/:id from another org');
 
   const listSuper = await request(AUTH, 'GET', '/superadmin/tenants', undefined, superToken);
   assert(listSuper.status === 200, `list tenants: ${listSuper.json.message}`);

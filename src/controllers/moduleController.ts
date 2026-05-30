@@ -3,6 +3,10 @@ import { sendSuccess, sendError } from '../utils/response';
 import { CourseModel } from '../models/Course';
 import { ModuleModel } from '../models/Module';
 import { LessonModel } from '../models/Lesson';
+import {
+  cannotAccessCourse,
+  denyAnonymousCourseAccess,
+} from '../utils/courseTenantScope';
 
 const EDIT_WINDOW_DAYS = 15;
 
@@ -11,6 +15,7 @@ const ensureInstructorCanEditCourse = async (req: Request, courseId: number): Pr
   if (!user) return 'Authentication required';
   const course = await CourseModel.findById(courseId);
   if (!course) return 'Course not found';
+  if (cannotAccessCourse(req, course)) return 'Course not found';
   if (user.role === 'admin' || user.role === 'superadmin') return null;
   if (user.role !== 'instructor') return 'Instructor access required';
   if (course.instructor_id !== user.userId) return 'You can only edit your own courses';
@@ -40,6 +45,13 @@ export const getModulesByCourse = async (req: Request, res: Response): Promise<v
       sendError(res, 'Invalid course ID', 400);
       return;
     }
+    const course = await CourseModel.findById(id);
+    if (!course) {
+      sendError(res, 'Course not found', 404);
+      return;
+    }
+    if (denyAnonymousCourseAccess(req, res, course)) return;
+
     const modules = await ModuleModel.findByCourseId(id);
     sendSuccess(res, modules, 'Modules retrieved');
   } catch (error) {

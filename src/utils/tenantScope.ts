@@ -44,7 +44,9 @@ export function assertCourseInTenant(
 ): boolean {
   if (isSuperadmin(actor.role)) return true;
   const actorTenant = getJwtTenantId(actor);
-  if (actorTenant == null || course.tenant_id == null) return false;
+  if (actorTenant == null) return false;
+  // Platform-wide courses (NULL tenant_id) are readable/enrollable by any org.
+  if (course.tenant_id == null) return true;
   return Number(course.tenant_id) === actorTenant;
 }
 

@@ -19,7 +19,10 @@ export const getEnrolledCourses = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const courses = await EnrollmentModel.getEnrolledCoursesWithDetails(user.userId);
+    const tenantId = getJwtTenantId(user);
+    const courses = await EnrollmentModel.getEnrolledCoursesWithDetails(user.userId, {
+      tenantId: tenantId ?? undefined,
+    });
     sendSuccess(res, courses, 'Enrolled courses retrieved');
   } catch (error) {
     console.error('Get enrolled courses error:', error);
