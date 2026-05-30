@@ -54,6 +54,13 @@ export function parseOptionalTenantId(raw: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Read tenant filter from query (?tenant_id= or ?tenantId=). */
+export function parseTenantIdQuery(query: Record<string, unknown>): number | null {
+  return (
+    parseOptionalTenantId(query.tenant_id) ?? parseOptionalTenantId(query.tenantId)
+  );
+}
+
 export function forbidClientTenantOverride(req: Request, res: Response): boolean {
   const body = req.body || {};
   if (

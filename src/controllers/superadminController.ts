@@ -9,7 +9,7 @@ import { formatAdminPublic } from '../utils/adminUserFormat';
 import { formatPlatformUser } from '../utils/platformUserFormat';
 import { UserRole } from '../types';
 import { TenantModel } from '../models/Tenant';
-import { parseOptionalTenantId } from '../utils/tenantScope';
+import { parseOptionalTenantId, parseTenantIdQuery } from '../utils/tenantScope';
 import { User } from '../types';
 
 async function tenantMapForUsers(
@@ -52,6 +52,7 @@ async function formatAdminsForList(users: User[]) {
     return formatAdminPublic({
       ...u,
       tenant_name: t?.name,
+      tenant_slug: t?.slug ?? null,
     });
   });
 }
@@ -239,7 +240,7 @@ async function listUsersByRole(
     const { page, limit } = parsePageLimit(req.query.page, req.query.limit);
     const search = queryScalar(req.query.search)?.trim();
 
-    const tenant_id = parseOptionalTenantId(req.query.tenant_id);
+    const tenant_id = parseTenantIdQuery(req.query as Record<string, unknown>);
 
     const result = await UserModel.findAll({
       page,
@@ -322,6 +323,7 @@ export const getAdminOverview = async (req: Request, res: Response): Promise<voi
     const adminPublic = formatAdminPublic({
       ...admin,
       tenant_name: tenant?.name,
+      tenant_slug: tenant?.slug ?? null,
     });
 
     if (tenantId == null) {

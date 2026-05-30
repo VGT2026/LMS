@@ -65,7 +65,12 @@ async function main(): Promise<void> {
   const create = await request(
     'POST',
     '/superadmin/admin',
-    { name: testAdminName, email: testAdminEmail, password: testAdminPassword },
+    {
+      name: testAdminName,
+      email: testAdminEmail,
+      password: testAdminPassword,
+      tenant_name: `Acceptance Org ${Date.now()}`,
+    },
     superToken
   );
   assert(
@@ -154,6 +159,48 @@ async function main(): Promise<void> {
   } else {
     console.log('⏭ 10. skip student 403 (register/login failed)');
   }
+
+  // 11. Admin rows include tenant_id
+  const adminRow = rows.find((r) => r.email === testAdminEmail) as Json | undefined;
+  assert(adminRow?.tenant_id != null, '11. admin list must include tenant_id');
+  const adminTenantId = Number(adminRow!.tenant_id);
+  console.log('✓ 11. GET /superadmin/admins includes tenant_id');
+
+  // 12. tenant_id query filter on students
+  const scopedStudents = await request(
+    'GET',
+    `/superadmin/students?tenant_id=${adminTenantId}&limit=500`,
+    undefined,
+    superToken
+  );
+  assert(scopedStudents.status === 200, `12. scoped students expected 200, got ${scopedStudents.status}`);
+  const scopedStudentRows = scopedStudents.json.data as Json[];
+  for (const s of scopedStudentRows) {
+    assert(
+      s.tenant_id == null || Number(s.tenant_id) === adminTenantId,
+      `12. student tenant_id must be ${adminTenantId}, got ${s.tenant_id}`
+    );
+  }
+  console.log('✓ 12. GET /superadmin/students?tenant_id= filters by tenant');
+
+  // 13. Admin overview scoped to admin tenant
+  const adminId = Number(adminRow!.id);
+  const overview = await request(
+    'GET',
+    `/superadmin/admins/${adminId}/overview?limit=500`,
+    undefined,
+    superToken
+  );
+  assert(overview.status === 200, `13. overview expected 200, got ${overview.status}`);
+  const overviewData = overview.json.data as Json;
+  assert(Number((overviewData.admin as Json)?.tenant_id) === adminTenantId, '13. overview admin tenant mismatch');
+  for (const s of (overviewData.students as Json[]) || []) {
+    assert(Number(s.tenant_id) === adminTenantId, '13. overview student wrong tenant');
+  }
+  for (const i of (overviewData.instructors as Json[]) || []) {
+    assert(Number(i.tenant_id) === adminTenantId, '13. overview instructor wrong tenant');
+  }
+  console.log('✓ 13. GET /superadmin/admins/:id/overview tenant-scoped');
 
   console.log('\nAll superadmin acceptance checks passed.');
 }

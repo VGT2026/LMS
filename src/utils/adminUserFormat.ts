@@ -1,4 +1,5 @@
 import { userIsActive } from './userActive';
+import { publicTenantFields } from './tenantDisplay';
 
 export type AdminPublic = {
   id: number;
@@ -6,7 +7,7 @@ export type AdminPublic = {
   email: string;
   role: 'admin';
   is_active: boolean;
-  tenant_id?: number | null;
+  tenant_id: number | null;
   tenant_name?: string;
   created_at?: string;
 };
@@ -18,6 +19,7 @@ export function formatAdminPublic(user: {
   role?: string;
   tenant_id?: number | null;
   tenant_name?: string;
+  tenant_slug?: string | null;
   is_active?: boolean | number | string | null;
   created_at?: Date | string | null;
 }): AdminPublic {
@@ -27,8 +29,7 @@ export function formatAdminPublic(user: {
     email: user.email,
     role: 'admin',
     is_active: userIsActive(user.is_active),
-    ...(user.tenant_id != null && { tenant_id: Number(user.tenant_id) }),
-    ...(user.tenant_name ? { tenant_name: user.tenant_name } : {}),
+    ...publicTenantFields(user.tenant_id, user.tenant_name, user.tenant_slug),
     ...(user.created_at != null && {
       created_at: new Date(user.created_at).toISOString(),
     }),
