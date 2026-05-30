@@ -21,6 +21,10 @@ import { TenantModel } from '../models/Tenant';
 import { publicTenantFields } from '../utils/tenantDisplay';
 import { parseTargetJobRoleId } from '../utils/jsonArrayFields';
 import { validateRoadmapCourseIds } from '../utils/roadmapCourses';
+import {
+  listPublicSignupOrganizations,
+  resolveRegistrationTenantId,
+} from '../utils/registrationTenant';
 
 /** Dev-only: Direct admin login by password only. POST /api/auth/dev-admin-login { "password": "..." } */
 export const devAdminLogin = async (req: Request, res: Response): Promise<void> => {
@@ -147,9 +151,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+/** GET /api/auth/organizations — public signup org list (active tenants, excludes Platform Default). */
+export const listPublicOrganizations = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const data = await listPublicSignupOrganizations();
+    sendSuccess(res, data, 'Organizations retrieved successfully');
+  } catch (error) {
+    console.error('List organizations error:', error);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, confirmPassword }: Omit<RegisterRequest, 'role'> = req.body;
+    const { name, email, password, confirmPassword, tenant_id: bodyTenantId }: RegisterRequest = req.body;
 
     // Validate input
     if (!name || !email || !password || !confirmPassword) {
@@ -188,8 +203,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const defaultTenantId = parseInt(process.env.DEFAULT_TENANT_ID || '1', 10);
-    const tenant_id = Number.isFinite(defaultTenantId) && defaultTenantId > 0 ? defaultTenantId : 1;
+    const tenantResult = await resolveRegistrationTenantId(bodyTenantId);
+    if (!tenantResult.ok) {
+      sendError(res, tenantResult.message, 400);
+      return;
+    }
+    const tenant_id = tenantResult.tenant_id;
 
     const newUser = await UserModel.create({
       name: name.trim(),

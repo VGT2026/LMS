@@ -52,6 +52,33 @@ async function main(): Promise<void> {
 
   console.log('API:', BASE);
 
+  // 0. Public organizations (no auth)
+  const orgs = await request('GET', '/organizations');
+  assert(orgs.status === 200, `0. organizations expected 200, got ${orgs.status}: ${orgs.json.message}`);
+  const orgList = orgs.json.data as Json[];
+  assert(Array.isArray(orgList), '0. organizations data must be array');
+  for (const o of orgList) {
+    assert(typeof o.id === 'number' && typeof o.name === 'string', '0. org row must have id and name');
+    assert(
+      String(o.name).trim().toLowerCase() !== 'platform default',
+      '0. Platform Default must not appear in public org list'
+    );
+  }
+  if (orgList.length > 0) {
+    const missingTenant = await request('POST', '/register', {
+      name: 'No Org Student',
+      email: `noorg.${Date.now()}@lmspro.com`,
+      password: 'pass12',
+      confirmPassword: 'pass12',
+    });
+    assert(missingTenant.status === 400, `0. register without tenant_id expected 400, got ${missingTenant.status}`);
+    assert(
+      String(missingTenant.json.message).toLowerCase().includes('organization'),
+      '0. register without tenant_id must mention organization'
+    );
+  }
+  console.log('✓ 0. GET /organizations (public, excludes Platform Default)');
+
   // 1. Login superadmin
   const loginSuper = await request('POST', '/login', { email: superEmail, password: superPassword });
   assert(loginSuper.status === 200, `1. superadmin login expected 200, got ${loginSuper.status}: ${loginSuper.json.message}`);
@@ -144,12 +171,23 @@ async function main(): Promise<void> {
 
   // 10. Student JWT → 403
   const studentEmail = `stud.${Date.now()}@lmspro.com`;
-  await request('POST', '/register', {
+  const registerBody: Json = {
     name: 'Test Student',
     email: studentEmail,
     password: 'pass12',
     confirmPassword: 'pass12',
-  });
+  };
+  const adminTenantFromCreate = Number(admin?.tenant_id);
+  if (adminTenantFromCreate > 0) {
+    registerBody.tenant_id = adminTenantFromCreate;
+  }
+  const reg = await request('POST', '/register', registerBody);
+  assert(reg.status === 201 || reg.status === 200, `10. register expected 201, got ${reg.status}: ${reg.json.message}`);
+  const regUser = (reg.json.data as Json)?.user as Json;
+  if (adminTenantFromCreate > 0) {
+    assert(Number(regUser?.tenant_id) === adminTenantFromCreate, '10. register response must include correct tenant_id');
+    assert(Boolean(regUser?.tenant_name), '10. register response must include tenant_name');
+  }
   const studLogin = await request('POST', '/login', { email: studentEmail, password: 'pass12' });
   const studToken = (studLogin.json.data as Json)?.token as string;
   if (studToken) {
@@ -201,6 +239,20 @@ async function main(): Promise<void> {
     assert(Number(i.tenant_id) === adminTenantId, '13. overview instructor wrong tenant');
   }
   console.log('✓ 13. GET /superadmin/admins/:id/overview tenant-scoped');
+
+  // 14. Non-superadmin cannot access admin overview → 403
+  if (studToken) {
+    const denyOverview = await request(
+      'GET',
+      `/superadmin/admins/${Number(adminRow!.id)}/overview`,
+      undefined,
+      studToken
+    );
+    assert(denyOverview.status === 403, `14. student overview expected 403, got ${denyOverview.status}`);
+    console.log('✓ 14. Non-superadmin overview → 403');
+  } else {
+    console.log('⏭ 14. skip overview 403 (no student token)');
+  }
 
   console.log('\nAll superadmin acceptance checks passed.');
 }

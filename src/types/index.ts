@@ -257,6 +257,9 @@ export interface LoginRequest {
 
 export interface RegisterRequest extends Omit<User, 'id' | 'is_active' | 'created_at' | 'updated_at'> {
   confirmPassword: string;
+  /** Selected organization (required when public orgs exist). tenant_name is display-only. */
+  tenant_id?: number;
+  tenant_name?: string;
 }
 
 export interface CreateInstructorRequest {

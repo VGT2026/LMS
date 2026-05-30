@@ -15,6 +15,7 @@ import {
   devAdminLogin,
   firebaseAuth,
   searchUsers,
+  listPublicOrganizations,
 } from '../controllers/authController';
 import {
   getCareerRoadmap,
@@ -75,6 +76,7 @@ const registerValidation = [
     }
     return true;
   }),
+  body('tenant_id').optional().isInt({ min: 1 }).withMessage('tenant_id must be a positive integer'),
 ];
 
 const createAdminValidation = [
@@ -89,6 +91,8 @@ const createAdminValidation = [
 ];
 
 // Public routes
+router.get('/organizations', listPublicOrganizations);
+router.get('/tenants', listPublicOrganizations);
 router.post('/login', loginValidation, handleValidation, login);
 router.post('/register', registerValidation, handleValidation, register);
 router.post(
