@@ -10,6 +10,51 @@ import { formatPlatformUser } from '../utils/platformUserFormat';
 import { UserRole } from '../types';
 import { TenantModel } from '../models/Tenant';
 import { parseOptionalTenantId } from '../utils/tenantScope';
+import { User } from '../types';
+
+async function tenantMapForUsers(
+  users: Array<{ tenant_id?: number | null }>
+): Promise<Map<number, { name: string; slug: string | null }>> {
+  const ids = [
+    ...new Set(
+      users
+        .map((u) => (u.tenant_id != null ? Number(u.tenant_id) : 0))
+        .filter((id) => id > 0)
+    ),
+  ];
+  const rows = await Promise.all(ids.map((id) => TenantModel.findById(id)));
+  const map = new Map<number, { name: string; slug: string | null }>();
+  for (const t of rows) {
+    if (t) map.set(t.id, { name: t.name, slug: t.slug });
+  }
+  return map;
+}
+
+function parseAdminIdParam(raw: unknown): number | null {
+  const s = String(Array.isArray(raw) ? raw[0] : raw ?? '').trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function formatUsersForPlatformList(users: User[]) {
+  const tenantMap = await tenantMapForUsers(users);
+  return users.map((u) => {
+    const t = u.tenant_id != null ? tenantMap.get(Number(u.tenant_id)) : undefined;
+    return formatPlatformUser(u, t);
+  });
+}
+
+async function formatAdminsForList(users: User[]) {
+  const tenantMap = await tenantMapForUsers(users);
+  return users.map((u) => {
+    const t = u.tenant_id != null ? tenantMap.get(Number(u.tenant_id)) : undefined;
+    return formatAdminPublic({
+      ...u,
+      tenant_name: t?.name,
+    });
+  });
+}
 
 async function tryLinkFirebase(
   email: string,
@@ -204,7 +249,7 @@ async function listUsersByRole(
       ...(tenant_id != null ? { tenant_id } : {}),
     });
 
-    const rows = result.users.map((u) => formatPlatformUser(u));
+    const rows = await formatUsersForPlatformList(result.users);
     sendPagination(res, rows, result.page, result.limit, result.total, `${label} retrieved successfully`);
   } catch (err: any) {
     console.error(`listUsersByRole(${role}) error:`, err);
@@ -239,7 +284,7 @@ export const listAdmins = async (req: Request, res: Response): Promise<void> => 
       search: search || undefined,
     });
 
-    const admins = result.users.map((u) => formatAdminPublic(u));
+    const admins = await formatAdminsForList(result.users);
 
     sendSuccess(res, admins, 'Admins retrieved successfully');
   } catch (err: any) {
@@ -249,6 +294,93 @@ export const listAdmins = async (req: Request, res: Response): Promise<void> => 
       process.env.NODE_ENV === 'development' ? `Internal server error: ${err.message}` : 'Internal server error',
       500
     );
+  }
+};
+
+/** GET /api/auth/superadmin/admins/:adminId/overview */
+export const getAdminOverview = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminId = parseAdminIdParam(req.params.adminId ?? req.params.userId);
+    if (adminId == null) {
+      sendError(res, 'Invalid admin ID', 400);
+      return;
+    }
+
+    const admin = await UserModel.findById(adminId);
+    if (!admin || admin.role !== 'admin') {
+      sendError(res, 'Admin not found', 404);
+      return;
+    }
+
+    const tenantId =
+      admin.tenant_id != null && Number(admin.tenant_id) > 0 ? Number(admin.tenant_id) : null;
+    const tenant = tenantId != null ? await TenantModel.findById(tenantId) : null;
+
+    const { page, limit } = parsePageLimit(req.query.page, req.query.limit, 500);
+    const search = queryScalar(req.query.search)?.trim();
+
+    const adminPublic = formatAdminPublic({
+      ...admin,
+      tenant_name: tenant?.name,
+    });
+
+    if (tenantId == null) {
+      sendSuccess(res, {
+        admin: adminPublic,
+        counts: { students: 0, instructors: 0 },
+        students: [],
+        instructors: [],
+      }, 'Admin organization overview retrieved');
+      return;
+    }
+
+    const listOpts = {
+      page,
+      limit,
+      search: search || undefined,
+      tenant_id: tenantId,
+    };
+
+    const [studentResult, instructorResult, studentTotals, instructorTotals] = await Promise.all([
+      UserModel.findAll({ ...listOpts, role: 'student' }),
+      UserModel.findAll({ ...listOpts, role: 'instructor' }),
+      UserModel.findAll({ page: 1, limit: 1, tenant_id: tenantId, role: 'student' }),
+      UserModel.findAll({ page: 1, limit: 1, tenant_id: tenantId, role: 'instructor' }),
+    ]);
+
+    const [students, instructors] = await Promise.all([
+      formatUsersForPlatformList(studentResult.users),
+      formatUsersForPlatformList(instructorResult.users),
+    ]);
+
+    sendSuccess(
+      res,
+      {
+        admin: adminPublic,
+        counts: {
+          students: studentTotals.total,
+          instructors: instructorTotals.total,
+        },
+        students,
+        instructors,
+        pagination: {
+          students: {
+            page: studentResult.page,
+            limit: studentResult.limit,
+            total: studentResult.total,
+          },
+          instructors: {
+            page: instructorResult.page,
+            limit: instructorResult.limit,
+            total: instructorResult.total,
+          },
+        },
+      },
+      'Admin organization overview retrieved'
+    );
+  } catch (err) {
+    console.error('getAdminOverview error:', err);
+    sendError(res, 'Internal server error', 500);
   }
 };
 

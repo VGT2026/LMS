@@ -32,6 +32,7 @@ import {
   listSuperadminInstructors,
   listTenants,
   moveUserTenant,
+  getAdminOverview,
 } from '../controllers/superadminController';
 import { authenticate, requireAdmin, requireSuperadmin } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
@@ -154,6 +155,12 @@ router.post(
 router.get('/superadmin/students', authenticate, requireSuperadmin, listStudents);
 router.get('/superadmin/instructors', authenticate, requireSuperadmin, listSuperadminInstructors);
 router.get('/superadmin/admins', authenticate, requireSuperadmin, listAdmins);
+router.get(
+  '/superadmin/admins/:adminId/overview',
+  authenticate,
+  requireSuperadmin,
+  getAdminOverview
+);
 
 router.patch(
   '/superadmin/admins/:userId/deactivate',
