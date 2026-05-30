@@ -343,8 +343,7 @@ export class CourseModel {
       conditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
     }
     if (tenantId != null && tenantId > 0) {
-      // Match validateIdsForTenant: legacy rows may have tenant_id NULL
-      conditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+      conditions.push('c.tenant_id = ?');
       params.push(tenantId);
     }
 
@@ -387,7 +386,7 @@ export class CourseModel {
       conditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
     }
     if (tenantId != null && tenantId > 0) {
-      conditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+      conditions.push('c.tenant_id = ?');
       params.push(tenantId);
     }
     if (excludeIds.length > 0) {

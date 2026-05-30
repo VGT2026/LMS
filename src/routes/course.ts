@@ -18,9 +18,9 @@ import { body } from 'express-validator';
 
 const router = Router();
 
-// Public routes
-router.get('/', getAllCourses);
-router.get('/categories/all', getAllCategories);
+// Public routes — optionalAuthenticate so JWT tenant scopes lists for logged-in users
+router.get('/', optionalAuthenticate, getAllCourses);
+router.get('/categories/all', optionalAuthenticate, getAllCategories);
 router.get('/pending', authenticate, requireAdmin, getPendingCourses);
 router.get('/:id', optionalAuthenticate, getCourseById);
 router.post('/:id/enroll', authenticate, enrollInCourse);

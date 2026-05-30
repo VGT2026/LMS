@@ -527,6 +527,17 @@ const runMigrations = async () => {
        WHERE c.tenant_id IS NULL`,
       [defaultTenantId]
     );
+    // Move courses off Platform Default when instructor belongs to a real org
+    await connection.query(
+      `UPDATE courses c
+       INNER JOIN users u ON u.id = c.instructor_id
+       SET c.tenant_id = u.tenant_id
+       WHERE c.tenant_id = ?
+         AND u.tenant_id IS NOT NULL
+         AND u.tenant_id != ?
+         AND u.role IN ('instructor', 'admin')`,
+      [defaultTenantId, defaultTenantId]
+    );
     console.log('✅ Backfilled courses.tenant_id');
 
     try {

@@ -2,15 +2,18 @@ import { Request, Response } from 'express';
 import { CourseModel } from '../models/Course';
 import {
   assertCourseInTenant,
+  getJwtTenantId,
   isSuperadmin,
   parseTenantIdQuery,
+  requiresTenant,
   resolveTenantFilter,
 } from './tenantScope';
 import { sendError } from './response';
 
 /**
- * Platform-wide courses (tenant_id IS NULL) are visible in catalog lists for every org.
- * Superadmin ?tenant_id= filters to that org only (strict, excludes platform-wide).
+ * Org users see only their tenant's courses (strict SQL match).
+ * Platform-wide (tenant_id IS NULL) rows are excluded unless ?include_platform=1.
+ * Superadmin without ?tenant_id= sees all; with ?tenant_id= sees that org only.
  */
 export function denyCrossTenantCourse(
   req: Request,
@@ -48,23 +51,48 @@ export function denyAnonymousCourseAccess(
   return false;
 }
 
+function includePlatformWideFromQuery(query: Record<string, unknown>): boolean {
+  const raw = query.include_platform ?? query.includePlatform;
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return v === 'true' || v === '1';
+}
+
 export function applyCourseListTenantScope(
   req: Request,
   options: Parameters<typeof CourseModel.findAll>[0]
 ): Parameters<typeof CourseModel.findAll>[0] {
   const user = req.user;
   const queryTenant = parseTenantIdQuery(req.query as Record<string, unknown>);
+  const allowPlatformWide = includePlatformWideFromQuery(req.query as Record<string, unknown>);
 
   if (!user) {
     if (queryTenant != null) {
       return {
         ...options,
         tenant_id: queryTenant,
-        include_platform_wide: true,
-        tenant_strict: false,
+        include_platform_wide: allowPlatformWide,
+        tenant_strict: !allowPlatformWide,
       };
     }
     return { ...options, platform_wide_only: true };
+  }
+
+  if (requiresTenant(user.role)) {
+    const jwtTenant = getJwtTenantId(user);
+    if (jwtTenant == null) {
+      return { ...options, tenant_id: -1 };
+    }
+    return {
+      ...options,
+      tenant_id: jwtTenant,
+      tenant_strict: true,
+      include_platform_wide: allowPlatformWide,
+      ...(user.role === 'instructor' ? { instructor_id: user.userId } : {}),
+      ...(user.role === 'student' &&
+      (req.query.enrolled_only === 'true' || req.query.enrolled_only === '1')
+        ? { enrolled_user_id: user.userId }
+        : {}),
+    };
   }
 
   const tenantId = resolveTenantFilter(user, queryTenant);
@@ -72,19 +100,13 @@ export function applyCourseListTenantScope(
     options = {
       ...options,
       tenant_id: tenantId,
-      tenant_strict: isSuperadmin(user.role),
-      include_platform_wide: !isSuperadmin(user.role),
+      tenant_strict: true,
+      include_platform_wide: false,
     };
   }
 
   if (user.role === 'instructor') {
     options = { ...options, instructor_id: user.userId };
-  } else if (user.role === 'student') {
-    const enrolledOnly =
-      req.query.enrolled_only === 'true' || req.query.enrolled_only === '1';
-    if (enrolledOnly) {
-      options = { ...options, enrolled_user_id: user.userId };
-    }
   }
 
   return options;
@@ -109,19 +131,25 @@ export type CourseTenantListScope = {
 
 export function courseListScopeFromUser(
   user: Parameters<typeof resolveTenantFilter>[0],
-  queryTenant?: number | null
+  queryTenant?: number | null,
+  allowPlatformWide = false
 ): CourseTenantListScope {
   if (!user) {
     if (queryTenant != null) {
-      return { tenant_id: queryTenant, include_platform_wide: true, tenant_strict: false };
+      return {
+        tenant_id: queryTenant,
+        include_platform_wide: allowPlatformWide,
+        tenant_strict: !allowPlatformWide,
+      };
     }
     return { platform_wide_only: true };
   }
+  if (requiresTenant(user.role)) {
+    const jwtTenant = getJwtTenantId(user);
+    if (jwtTenant == null) return { tenant_id: -1 };
+    return { tenant_id: jwtTenant, tenant_strict: true, include_platform_wide: allowPlatformWide };
+  }
   const tenantId = resolveTenantFilter(user, queryTenant);
   if (tenantId == null) return {};
-  return {
-    tenant_id: tenantId,
-    tenant_strict: isSuperadmin(user.role),
-    include_platform_wide: !isSuperadmin(user.role),
-  };
+  return { tenant_id: tenantId, tenant_strict: true, include_platform_wide: false };
 }

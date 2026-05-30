@@ -657,7 +657,8 @@ export const getAllCategories = async (req: Request, res: Response): Promise<voi
   try {
     const scope = courseListScopeFromUser(
       req.user,
-      parseOptionalTenantId(req.query.tenant_id)
+      parseOptionalTenantId(req.query.tenant_id),
+      req.query.include_platform === 'true' || req.query.include_platform === '1'
     );
     const categories = await CourseModel.getAllCategories(scope);
 

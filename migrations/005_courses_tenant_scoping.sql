@@ -14,4 +14,11 @@ WHERE c.tenant_id IS NULL
   AND u.tenant_id IS NOT NULL
   AND u.role IN ('admin', 'instructor');
 
+-- Re-home courses stuck on Platform Default to the instructor's real org
+-- (replace @default_tenant_id with your platform-default tenant id, usually 1)
+-- UPDATE courses c
+-- INNER JOIN users u ON c.instructor_id = u.id
+-- SET c.tenant_id = u.tenant_id
+-- WHERE c.tenant_id = 1 AND u.tenant_id IS NOT NULL AND u.tenant_id != 1;
+
 -- Platform-wide catalog: leave tenant_id NULL only for intentionally global courses.
