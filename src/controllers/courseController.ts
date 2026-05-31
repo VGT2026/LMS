@@ -19,6 +19,7 @@ import {
   denyCrossTenantCourse,
 } from '../utils/courseTenantScope';
 import { formatCourseForApi, formatCoursesForApi } from '../utils/courseFormat';
+import { parseCourseThumbnailFromBody } from '../utils/courseThumbnail';
 
 function defaultPublicCatalogFilters(
   req: Request,
@@ -180,17 +181,18 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
 
     if (forbidClientTenantOverride(req, res)) return;
 
-    const { title, description, instructor_id: instructorIdParam, instructor_name, category, thumbnail, duration, price, level }: {
+    const { title, description, instructor_id: instructorIdParam, instructor_name, category, duration, price, level }: {
       title: string;
       description?: string;
       instructor_id?: number | string;
       instructor_name?: string;
       category: string;
-      thumbnail?: string;
       duration?: string;
       price?: number;
       level?: 'beginner' | 'intermediate' | 'advanced';
     } = req.body;
+
+    const thumbnail = parseCourseThumbnailFromBody(req.body as Record<string, unknown>);
 
     if (!title || !category) {
       sendError(res, 'Title and category are required', 400);
@@ -270,7 +272,7 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
       instructor_id,
       tenant_id,
       category: trimmedCategory,
-      thumbnail,
+      thumbnail: thumbnail ?? undefined,
       duration: duration || '8 weeks',
       price: price ?? 0,
       level: level || 'beginner',
@@ -310,8 +312,19 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
     }
     if (denyCrossTenantCourse(req, res, existingCourse)) return;
 
-    let updates: Partial<Course> = req.body;
+    let updates: Partial<Course> = { ...req.body };
     delete (updates as { tenant_id?: unknown }).tenant_id;
+
+    const parsedThumbnail = parseCourseThumbnailFromBody(req.body as Record<string, unknown>);
+    if (parsedThumbnail != null) {
+      updates.thumbnail = parsedThumbnail;
+    } else if (
+      req.body.thumbnail === '' ||
+      req.body.thumbnail_url === '' ||
+      req.body.image === ''
+    ) {
+      updates.thumbnail = undefined;
+    }
 
     // Instructors can only update their own DRAFT courses (title, description, category, thumbnail) within 15 days
     if (user.role === 'instructor') {

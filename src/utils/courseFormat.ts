@@ -1,5 +1,6 @@
 import { Course } from '../types';
 import { publicTenantFields } from './tenantDisplay';
+import { resolvePublicUploadUrl } from './uploadUrls';
 
 type CourseRow = Course & {
   tenant_name?: string | null;
@@ -15,6 +16,7 @@ export function formatCourseForApi(course: CourseRow): CourseRow & { tenant_id: 
   return {
     ...course,
     instructor: course.instructor ?? course.instructor_name ?? 'Unassigned',
+    thumbnail: resolvePublicUploadUrl(course.thumbnail) ?? course.thumbnail ?? null,
     ...publicTenantFields(course.tenant_id, tenantName, tenantSlug),
   } as CourseRow & { tenant_id: number | null };
 }
