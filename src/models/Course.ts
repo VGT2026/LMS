@@ -218,12 +218,17 @@ export class CourseModel {
     } else if (tenantFilter != null && tenantFilter > 0) {
       const strict = tenant_strict === true;
       const includeGlobal = include_platform_wide !== false && !strict;
-      if (includeGlobal) {
+      if (strict) {
+        // Org admin/instructor: course tenant OR instructor's org (legacy rows may lack c.tenant_id)
+        whereConditions.push('(c.tenant_id = ? OR u.tenant_id = ?)');
+        params.push(tenantFilter, tenantFilter);
+      } else if (includeGlobal) {
         whereConditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+        params.push(tenantFilter);
       } else {
-        whereConditions.push('c.tenant_id = ?');
+        whereConditions.push('(c.tenant_id = ? OR u.tenant_id = ?)');
+        params.push(tenantFilter, tenantFilter);
       }
-      params.push(tenantFilter);
     }
 
     if (enrolled_user_id != null && enrolled_user_id > 0) {
@@ -264,9 +269,13 @@ export class CourseModel {
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const needsInstructorJoin = whereConditions.some((w) => w.includes('u.'));
 
-    // Get total count
-    const countQuery = `SELECT COUNT(*) as total FROM courses c ${whereClause}`;
+    // Get total count (match list query joins when filtering by instructor tenant)
+    const countFrom = needsInstructorJoin
+      ? 'FROM courses c LEFT JOIN users u ON c.instructor_id = u.id'
+      : 'FROM courses c';
+    const countQuery = `SELECT COUNT(DISTINCT c.id) as total ${countFrom} ${whereClause}`;
     const countResult = await DatabaseHelper.findOne<{ total: number }>(countQuery, params);
     const total = countResult?.total || 0;
 
@@ -281,7 +290,7 @@ export class CourseModel {
               (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) as students
        FROM courses c
        LEFT JOIN users u ON c.instructor_id = u.id
-       LEFT JOIN tenants tn ON c.tenant_id = tn.id
+       LEFT JOIN tenants tn ON tn.id = COALESCE(c.tenant_id, u.tenant_id)
        ${whereClause}`,
       page,
       limit,
