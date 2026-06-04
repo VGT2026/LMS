@@ -28,10 +28,13 @@ export const sendError = (
   statusCode = 500,
   error?: string
 ): void => {
+  const req = res.req as { originalUrl?: string; path?: string } | undefined;
+  const path = req?.originalUrl || req?.path;
   const response: ApiResponse = {
     success: false,
     message,
-    error,
+    ...(path ? { path } : {}),
+    ...(error ? { error } : {}),
   };
   res.status(statusCode).json(response);
 };

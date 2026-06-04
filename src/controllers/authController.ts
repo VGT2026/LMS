@@ -164,7 +164,14 @@ export const listPublicOrganizations = async (_req: Request, res: Response): Pro
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, confirmPassword, tenant_id: bodyTenantId }: RegisterRequest = req.body;
+    const {
+      name,
+      email,
+      password,
+      confirmPassword,
+      tenant_id: bodyTenantId,
+      tenant_name: bodyTenantName,
+    }: RegisterRequest = req.body;
 
     // Validate input
     if (!name || !email || !password || !confirmPassword) {
@@ -203,7 +210,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const tenantResult = await resolveRegistrationTenantId(bodyTenantId);
+    let registrationTenantId = parseOptionalTenantId(bodyTenantId);
+    if (registrationTenantId == null && bodyTenantName && String(bodyTenantName).trim()) {
+      const nameNorm = String(bodyTenantName).trim().toLowerCase();
+      const tenants = await TenantModel.findAll(true);
+      const match = tenants.find((t) => t.name.trim().toLowerCase() === nameNorm);
+      if (match) registrationTenantId = match.id;
+    }
+
+    const tenantResult = await resolveRegistrationTenantId(registrationTenantId);
     if (!tenantResult.ok) {
       sendError(res, tenantResult.message, 400);
       return;
@@ -517,9 +532,9 @@ export const getAllUsers = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const { role: qRole, page: qPage, limit: qLimit, search: qSearch } = req.query;
+    const { role: qRole, page: qPage, limit: qLimit, offset: qOffset, search: qSearch } = req.query;
 
-    const { page, limit } = parsePageLimit(qPage, qLimit);
+    const { page, limit } = parsePageLimit(qPage, qLimit, 10_000, qOffset);
     const options: Parameters<typeof UserModel.findAll>[0] = { page, limit };
 
     const roleStr = queryScalar(qRole);

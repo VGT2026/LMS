@@ -10,17 +10,25 @@ export function queryScalar(v: unknown): string | undefined {
 export function parsePageLimit(
   rawPage: unknown,
   rawLimit: unknown,
-  maxLimit: number = 10_000
+  maxLimit: number = 10_000,
+  rawOffset?: unknown
 ): { page: number; limit: number } {
   const pStr = queryScalar(rawPage);
   const lStr = queryScalar(rawLimit);
+  const oStr = queryScalar(rawOffset);
 
   const p = pStr !== undefined && pStr !== '' ? Number(pStr) : 1;
   const l = lStr !== undefined && lStr !== '' ? Number(lStr) : 10;
 
-  const page = Number.isFinite(p) && p >= 1 ? Math.min(Math.floor(p), 1_000_000) : 1;
   const cap = Math.max(1, Math.min(maxLimit, 100_000));
   const limit = Number.isFinite(l) && l >= 1 ? Math.min(Math.max(Math.floor(l), 1), cap) : 10;
 
+  const o = oStr !== undefined && oStr !== '' ? Number(oStr) : NaN;
+  if (Number.isFinite(o) && o >= 0) {
+    const page = limit > 0 ? Math.floor(o / limit) + 1 : 1;
+    return { page, limit };
+  }
+
+  const page = Number.isFinite(p) && p >= 1 ? Math.min(Math.floor(p), 1_000_000) : 1;
   return { page, limit };
 }

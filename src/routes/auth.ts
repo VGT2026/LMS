@@ -14,6 +14,8 @@ import {
   resetAdminDev,
   devAdminLogin,
   firebaseAuth,
+  forgotPassword,
+  resetPassword,
   searchUsers,
   listPublicOrganizations,
 } from '../controllers/authController';
@@ -32,6 +34,7 @@ import {
   listStudents,
   listSuperadminInstructors,
   listTenants,
+  createTenant,
   moveUserTenant,
   getAdminOverview,
 } from '../controllers/superadminController';
@@ -45,7 +48,11 @@ const handleValidation = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     const msg = errors.array().map((e: any) => e.msg || e.path).join(', ');
-    return res.status(400).json({ success: false, message: msg || 'Validation failed' });
+    return res.status(400).json({
+      success: false,
+      message: msg || 'Validation failed',
+      path: req.originalUrl,
+    });
   }
   next();
 };
@@ -95,6 +102,21 @@ router.get('/organizations', listPublicOrganizations);
 router.get('/tenants', listPublicOrganizations);
 router.post('/login', loginValidation, handleValidation, login);
 router.post('/register', registerValidation, handleValidation, register);
+router.post(
+  '/forgot-password',
+  [body('email').isEmail().withMessage('Valid email required').trim()],
+  handleValidation,
+  forgotPassword
+);
+router.post(
+  '/reset-password',
+  [
+    body('token').notEmpty().withMessage('Reset token is required'),
+    body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  ],
+  handleValidation,
+  resetPassword
+);
 router.post(
   '/firebase',
   [body('idToken').notEmpty().withMessage('Firebase ID token required')],
@@ -184,6 +206,14 @@ router.post(
 
 router.get('/superadmin/stats', authenticate, requireSuperadmin, getSuperadminStats);
 router.get('/superadmin/tenants', authenticate, requireSuperadmin, listTenants);
+router.post(
+  '/superadmin/tenants',
+  authenticate,
+  requireSuperadmin,
+  [body('name').trim().isLength({ min: 2, max: 255 }).withMessage('Tenant name must be 2–255 characters')],
+  handleValidation,
+  createTenant
+);
 router.patch(
   '/superadmin/users/:userId/tenant',
   authenticate,

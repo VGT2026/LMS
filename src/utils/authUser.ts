@@ -1,7 +1,7 @@
 import { JWTPayload, User } from '../types';
 import { TenantModel } from '../models/Tenant';
-import { userIsActive } from './userActive';
 import { publicTenantFields } from './tenantDisplay';
+import { formatPublicProfile } from './profileFormat';
 
 export function buildJwtFromUser(user: User): JWTPayload {
   const payload: JWTPayload = {
@@ -15,7 +15,9 @@ export function buildJwtFromUser(user: User): JWTPayload {
   return payload;
 }
 
+/** Login/register/Firebase user payload aligned with GET /api/auth/profile. */
 export async function buildAuthUserResponse(user: User) {
+  const profile = formatPublicProfile(user);
   let tenantName: string | undefined;
   let tenantSlug: string | undefined;
   if (user.tenant_id != null && Number(user.tenant_id) > 0) {
@@ -24,11 +26,7 @@ export async function buildAuthUserResponse(user: User) {
     tenantSlug = t?.slug ?? undefined;
   }
   return {
-    id: Number(user.id),
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    is_active: userIsActive(user.is_active),
+    ...profile,
     ...publicTenantFields(user.tenant_id, tenantName, tenantSlug),
   };
 }

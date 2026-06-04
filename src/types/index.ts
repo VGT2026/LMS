@@ -236,6 +236,7 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   message?: string;
+  path?: string;
   error?: string;
   pagination?: {
     page: number;

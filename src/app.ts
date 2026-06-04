@@ -52,8 +52,11 @@ export function createApp(): express.Application {
   const app = express();
 
   const corsRaw =
+    process.env.CORS_ORIGINS?.trim() ||
     process.env.CORS_ORIGIN?.trim() ||
-    (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8080,http://localhost:8081');
+    (process.env.NODE_ENV === 'production'
+      ? 'https://lms-frontend-two-lilac.vercel.app,http://localhost:8080'
+      : 'http://localhost:8080,http://localhost:8081');
   const allowedCorsOrigins = new Set(
     corsRaw
       .split(',')
@@ -79,6 +82,8 @@ export function createApp(): express.Application {
         callback(null, false);
       },
       credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Authorization', 'Content-Type'],
     })
   );
   app.use(morgan('combined'));
@@ -125,6 +130,7 @@ export function createApp(): express.Application {
     res.status(500).json({
       success: false,
       message: 'Internal server error',
+      path: req.originalUrl,
       ...(process.env.NODE_ENV === 'development' && { error: err.message }),
     });
   });

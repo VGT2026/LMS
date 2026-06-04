@@ -35,10 +35,18 @@ function defaultPublicCatalogFilters(
 
 export const getAllCourses = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { page: qPage, limit: qLimit, category, instructor_id, is_active, include_inactive, search } =
-      req.query;
+    const {
+      page: qPage,
+      limit: qLimit,
+      offset: qOffset,
+      category,
+      instructor_id,
+      is_active,
+      include_inactive,
+      search,
+    } = req.query;
 
-    const { page, limit } = parsePageLimit(qPage, qLimit);
+    const { page, limit } = parsePageLimit(qPage, qLimit, 10_000, qOffset);
     const options: Record<string, unknown> = { page, limit };
 
     const catRaw = Array.isArray(category) ? category[0] : category;

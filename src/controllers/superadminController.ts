@@ -434,6 +434,28 @@ export const toggleAdminDeactivate = async (req: Request, res: Response): Promis
   }
 };
 
+/** POST /api/auth/superadmin/tenants */
+export const createTenant = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name } = req.body || {};
+    const nameTrim = String(name ?? '').trim();
+    if (nameTrim.length < 2) {
+      sendError(res, 'Tenant name must be at least 2 characters', 400);
+      return;
+    }
+    const tenant = await TenantModel.createUniqueFromName(nameTrim);
+    await AuditLogModel.record({
+      actor_id: req.user!.userId,
+      action: 'superadmin.tenant.create',
+      metadata: { tenantId: tenant.id, name: tenant.name },
+    });
+    sendSuccess(res, { id: tenant.id, name: tenant.name }, 'Tenant created successfully', 201);
+  } catch (err) {
+    console.error('createTenant error:', err);
+    sendError(res, 'Internal server error', 500);
+  }
+};
+
 /** GET /api/auth/superadmin/tenants */
 export const listTenants = async (req: Request, res: Response): Promise<void> => {
   try {
