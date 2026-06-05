@@ -549,6 +549,8 @@ export class CourseModel {
     const conditions = ['c.category IS NOT NULL', `c.category != ''`];
     const params: unknown[] = [];
 
+    let needsInstructorJoin = false;
+
     if (platform_wide_only) {
       conditions.push('c.tenant_id IS NULL');
     } else if (tenantFilter != null && tenantFilter > 0) {
@@ -556,15 +558,21 @@ export class CourseModel {
       const includeGlobal = include_platform_wide !== false && !strict;
       if (includeGlobal) {
         conditions.push('(c.tenant_id = ? OR c.tenant_id IS NULL)');
+        params.push(tenantFilter);
       } else {
-        conditions.push('c.tenant_id = ?');
+        // Match findAll: course tenant OR instructor's org (legacy rows may lack c.tenant_id)
+        conditions.push('(c.tenant_id = ? OR u.tenant_id = ?)');
+        params.push(tenantFilter, tenantFilter);
+        needsInstructorJoin = true;
       }
-      params.push(tenantFilter);
     }
 
+    const fromClause = needsInstructorJoin
+      ? 'FROM courses c LEFT JOIN users u ON c.instructor_id = u.id'
+      : 'FROM courses c';
     const query = `
       SELECT DISTINCT c.category
-      FROM courses c
+      ${fromClause}
       WHERE ${conditions.join(' AND ')}
       ORDER BY c.category ASC
     `;
