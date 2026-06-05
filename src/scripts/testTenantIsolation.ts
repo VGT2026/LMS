@@ -42,6 +42,11 @@ function data(json: Json): Json {
   return (json.data as Json) || json;
 }
 
+function dataArray(json: Json): Json[] {
+  const payload = data(json);
+  return Array.isArray(payload) ? (payload as Json[]) : [];
+}
+
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
@@ -108,7 +113,7 @@ async function main(): Promise<void> {
   assert(createInstrA.status === 201 || createInstrA.status === 200, `create instructor A: ${createInstrA.json.message}`);
 
   const instrListA = await request(AUTH, 'GET', '/admin/instructors', undefined, tokenA);
-  const instructorsA = (data(instrListA.json) as Json[]) || [];
+  const instructorsA = dataArray(instrListA.json);
   const instrA = instructorsA.find((i) => i.email === instrAEmail) as Json | undefined;
   assert(instrA?.id != null, 'instructor A not in admin A list');
 
@@ -131,7 +136,7 @@ async function main(): Promise<void> {
 
   const listA = await request(COURSES, 'GET', `/?tenant_id=${userA.tenant_id}`, undefined, tokenA);
   assert(listA.status === 200, `admin A list courses: ${listA.json.message}`);
-  const rowsA = (data(listA.json) as Json[]) || [];
+  const rowsA = dataArray(listA.json);
   assert(rowsA.some((c) => c.id === courseA.id), 'Admin A must see own course in tenant-scoped list');
   const rowA = rowsA.find((c) => c.id === courseA.id) as Json;
   assert(rowA?.tenant_name != null || rowA?.tenant_id != null, 'course row must include tenant fields');
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
 
   const listB = await request(COURSES, 'GET', `/?tenant_id=${userB.tenant_id}`, undefined, tokenB);
   assert(listB.status === 200, `admin B list courses: ${listB.json.message}`);
-  const rowsB = (data(listB.json) as Json[]) || [];
+  const rowsB = dataArray(listB.json);
   const leaked = rowsB.some((c) => c.id === courseA.id || String(c.title).includes(`Course A ${ts}`));
   assert(!leaked, 'Admin B must not see Admin A courses');
   console.log('✓ 2. Admin B GET /courses does not see Admin A courses');
@@ -150,7 +155,7 @@ async function main(): Promise<void> {
 
   const listSuper = await request(AUTH, 'GET', '/superadmin/tenants', undefined, superToken);
   assert(listSuper.status === 200, `list tenants: ${listSuper.json.message}`);
-  const tenants = data(listSuper.json) as Json[];
+  const tenants = dataArray(listSuper.json);
   assert(Array.isArray(tenants) && tenants.length >= 2, 'superadmin should see tenants');
   console.log('✓ 4. Superadmin lists tenants');
 
