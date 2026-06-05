@@ -241,17 +241,11 @@ export class CourseModel {
     if (approvalFilter !== undefined && hasApprovalStatus) {
       whereConditions.push('c.approval_status = ?');
       params.push(approvalFilter);
-    } else {
-      if (include_inactive) {
-        if (hasApprovalStatus) {
-          whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
-        }
-      } else if (is_active !== undefined) {
-        whereConditions.push('c.is_active = ?');
-        params.push(is_active);
-        if (is_active && hasApprovalStatus) {
-          whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
-        }
+    } else if (!include_inactive && is_active !== undefined) {
+      whereConditions.push('c.is_active = ?');
+      params.push(is_active);
+      if (is_active && hasApprovalStatus) {
+        whereConditions.push("(c.approval_status = 'approved' OR c.approval_status IS NULL)");
       }
     }
 

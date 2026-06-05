@@ -81,9 +81,9 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
 
     if (req.user?.role === 'student') {
       const incRaw = Array.isArray(include_inactive) ? include_inactive[0] : include_inactive;
+      options.approval_status = 'approved';
       if (incRaw !== 'true') {
         options.is_active = true;
-        options.approval_status = 'approved';
       }
     }
 
