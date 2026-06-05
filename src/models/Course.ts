@@ -123,9 +123,23 @@ export class CourseModel {
     const updateFields: string[] = [];
     const values: any[] = [];
 
+    const allowedFields = new Set([
+      'title',
+      'description',
+      'instructor_id',
+      'category',
+      'thumbnail',
+      'duration',
+      'price',
+      'level',
+      'is_active',
+      'approval_status',
+    ]);
+
     // Build dynamic update query
     for (const [key, value] of Object.entries(updates)) {
       if (key === 'id' || key === 'created_at' || key === 'instructor_name' || key === 'instructor_email') continue;
+      if (!allowedFields.has(key)) continue;
 
       if (key === 'instructor_id') {
         updateFields.push('instructor_id = ?');

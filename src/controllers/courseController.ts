@@ -19,7 +19,52 @@ import {
   denyCrossTenantCourse,
 } from '../utils/courseTenantScope';
 import { formatCourseForApi, formatCoursesForApi } from '../utils/courseFormat';
-import { parseCourseThumbnailFromBody } from '../utils/courseThumbnail';
+import { parseCourseThumbnailFromRequest, isCourseThumbnailClearRequested } from '../utils/courseThumbnail';
+
+const COURSE_UPDATE_FIELDS = new Set<keyof Course>([
+  'title',
+  'description',
+  'instructor_id',
+  'category',
+  'thumbnail',
+  'duration',
+  'price',
+  'level',
+  'is_active',
+  'approval_status',
+]);
+
+const INSTRUCTOR_COURSE_FIELDS = ['title', 'description', 'category', 'thumbnail'] as const;
+
+function sanitizeCourseUpdates(updates: Partial<Course>): Partial<Course> {
+  const sanitized: Partial<Course> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (COURSE_UPDATE_FIELDS.has(key as keyof Course)) {
+      (sanitized as Record<string, unknown>)[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+function pickInstructorCourseUpdates(
+  updates: Partial<Course>,
+  parsedThumbnail: string | null,
+  clearThumbnail: boolean
+): Partial<Course> {
+  const picked: Partial<Course> = {};
+  for (const key of INSTRUCTOR_COURSE_FIELDS) {
+    if (key === 'thumbnail') continue;
+    if (updates[key] !== undefined) {
+      picked[key] = updates[key];
+    }
+  }
+  if (parsedThumbnail != null) {
+    picked.thumbnail = parsedThumbnail;
+  } else if (clearThumbnail) {
+    picked.thumbnail = undefined;
+  }
+  return picked;
+}
 
 function defaultPublicCatalogFilters(
   req: Request,
@@ -200,7 +245,7 @@ export const createCourse = async (req: Request, res: Response): Promise<void> =
       level?: 'beginner' | 'intermediate' | 'advanced';
     } = req.body;
 
-    const thumbnail = parseCourseThumbnailFromBody(req.body as Record<string, unknown>);
+    const thumbnail = parseCourseThumbnailFromRequest(req);
 
     if (!title || !category) {
       sendError(res, 'Title and category are required', 400);
@@ -323,14 +368,11 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
     let updates: Partial<Course> = { ...req.body };
     delete (updates as { tenant_id?: unknown }).tenant_id;
 
-    const parsedThumbnail = parseCourseThumbnailFromBody(req.body as Record<string, unknown>);
+    const parsedThumbnail = parseCourseThumbnailFromRequest(req);
+    const clearThumbnail = isCourseThumbnailClearRequested(req.body as Record<string, unknown>);
     if (parsedThumbnail != null) {
       updates.thumbnail = parsedThumbnail;
-    } else if (
-      req.body.thumbnail === '' ||
-      req.body.thumbnail_url === '' ||
-      req.body.image === ''
-    ) {
+    } else if (clearThumbnail) {
       updates.thumbnail = undefined;
     }
 
@@ -350,8 +392,9 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
         sendError(res, 'Course cannot be edited after 15 days. The edit window has expired.', 403);
         return;
       }
-      const { instructor_id, is_active, ...instructorAllowed } = updates as any;
-      updates = instructorAllowed;
+      updates = pickInstructorCourseUpdates(updates, parsedThumbnail, clearThumbnail);
+    } else {
+      updates = sanitizeCourseUpdates(updates);
     }
 
     const updatedCourse = await CourseModel.update(courseId, updates);
